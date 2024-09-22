@@ -298,10 +298,17 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		} else {
 			response = fmt.Sprintf("@%s This is not an image, only images are supported currently", replyPost.Account.Acct)
 		}
+
+		visibility := replyPost.Visibility
+
+		if visibility == "public" {
+			visibility = "unlisted"
+		}
+
 		_, err = c.PostStatus(ctx, &mastodon.Toot{
 			Status:      response,
 			InReplyToID: replyToID,
-			Visibility:  replyPost.Visibility,
+			Visibility:  visibility,
 		})
 
 		if err != nil {
