@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/joho/godotenv"
@@ -21,6 +22,7 @@ import (
 
 var model *genai.GenerativeModel
 var ctx context.Context
+var botAccountID mastodon.ID
 
 func main() {
 	// Load environment variables and set up Mastodon client
@@ -29,12 +31,22 @@ func main() {
 		log.Fatal("Error loading .env file")
 	}
 
+	var cancel context.CancelFunc
+	ctx, cancel = context.WithCancel(context.Background())
+	defer cancel()
+
 	c := mastodon.NewClient(&mastodon.Config{
 		Server:       os.Getenv("MASTODON_SERVER"),
 		ClientID:     os.Getenv("MASTODON_CLIENT_ID"),
 		ClientSecret: os.Getenv("MASTODON_CLIENT_SECRET"),
 		AccessToken:  os.Getenv("MASTODON_ACCESS_TOKEN"),
 	})
+
+	// Fetch and verify the bot account ID
+	botAccountID, err = fetchAndVerifyBotAccountID(c)
+	if err != nil {
+		log.Fatalf("Error fetching bot account ID: %v", err)
+	}
 
 	// Set up Gemini AI model
 	err = Setup(os.Getenv("GEMINI_API_KEY"))
@@ -44,8 +56,6 @@ func main() {
 
 	// Connect to Mastodon streaming API
 	ws := c.NewWSClient()
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 
 	events, err := ws.StreamingWSUser(ctx)
 	if err != nil {
@@ -53,6 +63,16 @@ func main() {
 	}
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
+
+	// Schedule periodic unfollow checks
+	ticker := time.NewTicker(30 * time.Minute)
+	defer ticker.Stop()
+
+	go func() {
+		for range ticker.C {
+			unfollowNonFollowers(c)
+		}
+	}()
 
 	// Main event loop
 	for event := range events {
@@ -74,6 +94,16 @@ func main() {
 			log.Printf("Unhandled event type: %T", e)
 		}
 	}
+}
+
+// fetchAndVerifyBotAccountID fetches and prints the bot account details to verify the account ID
+func fetchAndVerifyBotAccountID(c *mastodon.Client) (mastodon.ID, error) {
+	acct, err := c.GetAccountCurrentUser(ctx)
+	if err != nil {
+		return "", err
+	}
+	fmt.Printf("Bot Account ID: %s, Username: %s\n", acct.ID, acct.Acct)
+	return acct.ID, nil
 }
 
 // Setup initializes the Gemini AI model with the provided API key
@@ -154,6 +184,77 @@ func handleFollow(c *mastodon.Client, notification *mastodon.Notification) {
 	fmt.Printf("Followed back: %s\n", notification.Account.Acct)
 }
 
+// unfollowNonFollowers unfollows accounts that are no longer following the bot
+func unfollowNonFollowers(c *mastodon.Client) {
+	followers, err := getFollowers(c)
+	if err != nil {
+		log.Printf("Error fetching followers: %v", err)
+		return
+	}
+
+	following, err := getFollowing(c)
+	if err != nil {
+		log.Printf("Error fetching following: %v", err)
+		return
+	}
+
+	followerMap := make(map[mastodon.ID]bool)
+	for _, follower := range followers {
+		followerMap[follower.ID] = true
+	}
+
+	for _, followee := range following {
+		if !followerMap[followee.ID] {
+			_, err := c.AccountUnfollow(ctx, followee.ID)
+			if err != nil {
+				log.Printf("Error unfollowing %s: %v", followee.Acct, err)
+			} else {
+				fmt.Printf("Unfollowed: %s\n", followee.Acct)
+			}
+		}
+	}
+}
+
+// getFollowers returns a list of accounts following the bot
+func getFollowers(c *mastodon.Client) ([]mastodon.Account, error) {
+	var followers []mastodon.Account
+	pg := mastodon.Pagination{Limit: 80}
+	for {
+		fs, err := c.GetAccountFollowers(ctx, botAccountID, &pg)
+		if err != nil {
+			return nil, err
+		}
+		if len(fs) == 0 {
+			break
+		}
+		for _, f := range fs {
+			followers = append(followers, *f)
+		}
+		pg.MaxID = fs[len(fs)-1].ID
+	}
+	return followers, nil
+}
+
+// getFollowing returns a list of accounts the bot is following
+func getFollowing(c *mastodon.Client) ([]mastodon.Account, error) {
+	var following []mastodon.Account
+	pg := mastodon.Pagination{Limit: 80}
+	for {
+		fs, err := c.GetAccountFollowing(ctx, botAccountID, &pg)
+		if err != nil {
+			return nil, err
+		}
+		if len(fs) == 0 {
+			break
+		}
+		for _, f := range fs {
+			following = append(following, *f)
+		}
+		pg.MaxID = fs[len(fs)-1].ID
+	}
+	return following, nil
+}
+
 // handleUpdate processes new posts and generates alt-text descriptions if missing
 func handleUpdate(c *mastodon.Client, status *mastodon.Status) {
 	if status.Account.Acct == os.Getenv("MASTODON_USERNAME") {
@@ -185,7 +286,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 				altText = "Sorry, I couldn't process this image."
 			}
 
-			response := fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText)
+			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText)
 
 			if err != nil {
 				log.Printf("Error posting alt-text: %v", err)
