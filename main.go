@@ -30,6 +30,8 @@ var model *genai.GenerativeModel
 var ctx context.Context
 var botAccountID mastodon.ID
 
+var consentRequests = make(map[mastodon.ID]mastodon.ID)
+
 func main() {
 	// Load environment variables and set up Mastodon client
 	err := godotenv.Load()
@@ -82,7 +84,39 @@ func main() {
 		case *mastodon.NotificationEvent:
 			switch e.Notification.Type {
 			case "mention":
-				handleMention(c, e.Notification)
+				if originalStatus := e.Notification.Status.InReplyToID; originalStatus != nil {
+					var originalStatusID mastodon.ID
+					switch id := originalStatus.(type) {
+					case string:
+						originalStatusID = mastodon.ID(id)
+					case mastodon.ID:
+						originalStatusID = id
+					}
+
+					getStatus, err := c.GetStatus(ctx, originalStatusID)
+
+					if err != nil {
+						handleMention(c, e.Notification)
+					}
+
+					veryOriginalStatus := getStatus.InReplyToID
+
+					var veryOriginalStatusID mastodon.ID
+					switch id := veryOriginalStatus.(type) {
+					case string:
+						veryOriginalStatusID = mastodon.ID(id)
+					case mastodon.ID:
+						veryOriginalStatusID = id
+					}
+
+					if _, ok := consentRequests[veryOriginalStatusID]; ok {
+						handleConsentResponse(c, veryOriginalStatusID, e.Notification.Status)
+					} else {
+						handleMention(c, e.Notification)
+					}
+				} else {
+					handleMention(c, e.Notification)
+				}
 			case "follow":
 				handleFollow(c, e.Notification)
 			}
@@ -98,6 +132,7 @@ func main() {
 	}
 }
 
+// checkMutuals checks the bot's followers and following lists and corrects any discrepancies
 func checkMutuals(ticker *time.Ticker, c *mastodon.Client) {
 	for range ticker.C {
 		followers, err := getFollowers(c)
@@ -189,7 +224,52 @@ func handleMention(c *mastodon.Client, notification *mastodon.Notification) {
 		return
 	}
 
-	generateAndPostAltText(c, status, notification.Status.ID)
+	//Check if the original status has any media attachments
+	if len(status.MediaAttachments) == 0 {
+		return
+	}
+
+	// Check if the person who mentioned the bot is the OP
+	if status.Account.ID == notification.Account.ID {
+		generateAndPostAltText(c, status, notification.Status.ID)
+	} else {
+		requestConsent(c, status, notification)
+	}
+}
+
+// requestConsent asks the original poster for consent to generate alt text
+func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *mastodon.Notification) {
+	consentRequests[status.ID] = notification.Status.ID
+
+	message := fmt.Sprintf("@%s This bot has been asked to generate an alt text for your image by @%s. Do you consent? Reply with 'Y' or 'Yes' to proceed.", status.Account.Acct, notification.Account.Acct)
+	_, err := c.PostStatus(ctx, &mastodon.Toot{
+		Status:      message,
+		InReplyToID: status.ID,
+		Visibility:  status.Visibility,
+	})
+	if err != nil {
+		log.Printf("Error posting consent request: %v", err)
+	}
+}
+
+// handleConsentResponse processes the consent response from the original poster
+func handleConsentResponse(c *mastodon.Client, ID mastodon.ID, consentStatus *mastodon.Status) {
+	originalStatusID := ID
+	status, err := c.GetStatus(ctx, originalStatusID)
+	if err != nil {
+		log.Printf("Error fetching original status: %v", err)
+		return
+	}
+
+	content := strings.TrimSpace(strings.ToLower(consentStatus.Content))
+	if strings.Contains(content, "y") || strings.Contains(content, "yes") {
+		fmt.Printf("consentStatus: %s, status: %s\n", consentStatus.ID, status.ID)
+		generateAndPostAltText(c, status, consentStatus.ID)
+	} else {
+		log.Printf("Consent denied by the original poster: %s", consentStatus.Account.Acct)
+	}
+	delete(consentRequests, originalStatusID)
+
 }
 
 // isDNI checks if an account meets the Do Not Interact (DNI) conditions
@@ -266,7 +346,7 @@ func followBackMissedFollowers(c *mastodon.Client, followers, following []mastod
 // getFollowers returns a list of accounts following the bot
 func getFollowers(c *mastodon.Client) ([]mastodon.Account, error) {
 	var followers []mastodon.Account
-	pg := mastodon.Pagination{Limit: 2000}
+	pg := mastodon.Pagination{}
 	for {
 		fs, err := c.GetAccountFollowers(ctx, botAccountID, &pg)
 		if err != nil {
@@ -286,7 +366,7 @@ func getFollowers(c *mastodon.Client) ([]mastodon.Account, error) {
 // getFollowing returns a list of accounts the bot is following
 func getFollowing(c *mastodon.Client) ([]mastodon.Account, error) {
 	var following []mastodon.Account
-	pg := mastodon.Pagination{Limit: 2000}
+	pg := mastodon.Pagination{}
 	for {
 		fs, err := c.GetAccountFollowing(ctx, botAccountID, &pg)
 		if err != nil {
@@ -325,7 +405,10 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		return
 	}
 
+	fmt.Printf("Generating alt-text for status: %s\n", status.ID)
+
 	for _, attachment := range status.MediaAttachments {
+		fmt.Printf("Attachment: %s\n", attachment.URL)
 		var response string
 		if attachment.Type == "image" && attachment.Description == "" {
 			altText, err := generateAltText(attachment.URL)
