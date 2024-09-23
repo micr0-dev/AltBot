@@ -381,6 +381,7 @@ func GenerateAlt(strPrompt string, image []byte, fileExtension string) (string, 
 }
 
 // downscaleImage resizes the image to the specified width while maintaining the aspect ratio
+// and converts it to PNG or JPEG if it is in a different format.
 func downscaleImage(imgData []byte, width uint) ([]byte, string, error) {
 	img, format, err := image.Decode(bytes.NewReader(imgData))
 	if err != nil {
@@ -390,13 +391,27 @@ func downscaleImage(imgData []byte, width uint) ([]byte, string, error) {
 	// Resize the image to the specified width while maintaining the aspect ratio
 	resizedImg := resize.Resize(width, 0, img, resize.Lanczos3)
 
-	// Encode the resized image back to bytes
+	// Convert the image to PNG or JPEG if it is in a different format
 	var buf bytes.Buffer
 	switch format {
 	case "jpeg":
 		err = jpeg.Encode(&buf, resizedImg, nil)
+		format = "jpeg"
 	case "png":
 		err = png.Encode(&buf, resizedImg)
+		format = "png"
+	case "gif":
+		err = png.Encode(&buf, resizedImg)
+		format = "png"
+	case "bmp":
+		err = png.Encode(&buf, resizedImg)
+		format = "png"
+	case "tiff":
+		err = png.Encode(&buf, resizedImg)
+		format = "png"
+	case "webp":
+		err = png.Encode(&buf, resizedImg)
+		format = "png"
 	default:
 		return nil, "", fmt.Errorf("unsupported image format: %s", format)
 	}
