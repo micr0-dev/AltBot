@@ -2,7 +2,6 @@ package main
 
 import (
 	"encoding/json"
-	"fmt"
 	"os"
 )
 
@@ -29,12 +28,10 @@ func loadLocalizations() error {
 }
 
 func getLocalizedString(lang, key string, category string) string {
-	fmt.Println(lang, key, category)
 	localization := localizations["en"]
 	if value, ok := localizations[lang]; ok {
 		localization = value
 	}
-	fmt.Println(localization)
 
 	switch category {
 	case "prompt":

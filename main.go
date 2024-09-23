@@ -248,7 +248,6 @@ func handleConsentResponse(c *mastodon.Client, ID mastodon.ID, consentStatus *ma
 
 	content := strings.TrimSpace(strings.ToLower(consentStatus.Content))
 	if strings.Contains(content, "y") || strings.Contains(content, "yes") {
-		fmt.Printf("consentStatus: %s, status: %s\n", consentStatus.ID, status.ID)
 		generateAndPostAltText(c, status, consentStatus.ID)
 	} else {
 		log.Printf("Consent denied by the original poster: %s", consentStatus.Account.Acct)
@@ -312,10 +311,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		return
 	}
 
-	fmt.Printf("Generating alt-text for status: %s\n", status.ID)
-
 	for _, attachment := range status.MediaAttachments {
-		fmt.Printf("Attachment: %s\n", attachment.URL)
 		var response string
 		if attachment.Type == "image" && attachment.Description == "" {
 			altText, err := generateAltText(attachment.URL, replyPost.Language)
@@ -377,8 +373,6 @@ func generateAltText(imageURL string, lang string) (string, error) {
 
 	prompt := getLocalizedString(lang, "generateAltText", "prompt")
 
-	fmt.Println("Prompt: " + prompt)
-
 	fmt.Println("Processing image: " + imageURL)
 
 	return GenerateAlt(prompt, downscaledImg, format)
@@ -390,6 +384,8 @@ func GenerateAlt(strPrompt string, image []byte, fileExtension string) (string, 
 
 	parts = append(parts, genai.Text(strPrompt))
 	parts = append(parts, genai.ImageData(fileExtension, image))
+
+	fmt.Println("Generating content...")
 
 	resp, err := model.GenerateContent(ctx, parts...)
 	if err != nil {
