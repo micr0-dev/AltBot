@@ -76,8 +76,6 @@ func main() {
 	ticker := time.NewTicker(30 * time.Minute)
 	defer ticker.Stop()
 
-	go checkMutuals(ticker, c)
-
 	// Main event loop
 	for event := range events {
 		switch e := event.(type) {
@@ -129,24 +127,6 @@ func main() {
 		default:
 			log.Printf("Unhandled event type: %T", e)
 		}
-	}
-}
-
-// checkMutuals checks the bot's followers and following lists and corrects any discrepancies
-func checkMutuals(ticker *time.Ticker, c *mastodon.Client) {
-	for range ticker.C {
-		followers, err := getFollowers(c)
-		if err != nil {
-			log.Printf("Error fetching followers: %v", err)
-		}
-
-		following, err := getFollowing(c)
-		if err != nil {
-			log.Printf("Error fetching following: %v", err)
-		}
-
-		unfollowNonFollowers(c, followers, following)
-		followBackMissedFollowers(c, followers, following)
 	}
 }
 
@@ -303,84 +283,6 @@ func handleFollow(c *mastodon.Client, notification *mastodon.Notification) {
 		return
 	}
 	fmt.Printf("Followed back: %s\n", notification.Account.Acct)
-}
-
-// unfollowNonFollowers unfollows accounts that are no longer following the bot
-func unfollowNonFollowers(c *mastodon.Client, followers, following []mastodon.Account) {
-	followerMap := make(map[mastodon.ID]bool)
-	for _, follower := range followers {
-		followerMap[follower.ID] = true
-	}
-
-	for _, followee := range following {
-		if !followerMap[followee.ID] {
-			_, err := c.AccountUnfollow(ctx, followee.ID)
-			if err != nil {
-				log.Printf("Error unfollowing %s: %v", followee.Acct, err)
-			} else {
-				fmt.Printf("Unfollowed: %s\n", followee.Acct)
-			}
-		}
-	}
-}
-
-// followBackMissedFollowers follows back users who are following the bot but are not being followed by the bot
-func followBackMissedFollowers(c *mastodon.Client, followers, following []mastodon.Account) {
-	followingMap := make(map[mastodon.ID]bool)
-	for _, followee := range following {
-		followingMap[followee.ID] = true
-	}
-
-	for _, follower := range followers {
-		if !followingMap[follower.ID] {
-			_, err := c.AccountFollow(ctx, follower.ID)
-			if err != nil {
-				log.Printf("Error following back %s: %v", follower.Acct, err)
-			} else {
-				fmt.Printf("Followed back: %s\n", follower.Acct)
-			}
-		}
-	}
-}
-
-// getFollowers returns a list of accounts following the bot
-func getFollowers(c *mastodon.Client) ([]mastodon.Account, error) {
-	var followers []mastodon.Account
-	pg := mastodon.Pagination{}
-	for {
-		fs, err := c.GetAccountFollowers(ctx, botAccountID, &pg)
-		if err != nil {
-			return nil, err
-		}
-		if len(fs) == 0 {
-			break
-		}
-		for _, f := range fs {
-			followers = append(followers, *f)
-		}
-		pg.MaxID = fs[len(fs)-1].ID
-	}
-	return followers, nil
-}
-
-// getFollowing returns a list of accounts the bot is following
-func getFollowing(c *mastodon.Client) ([]mastodon.Account, error) {
-	var following []mastodon.Account
-	pg := mastodon.Pagination{}
-	for {
-		fs, err := c.GetAccountFollowing(ctx, botAccountID, &pg)
-		if err != nil {
-			return nil, err
-		}
-		if len(fs) == 0 {
-			break
-		}
-		for _, f := range fs {
-			following = append(following, *f)
-		}
-		pg.MaxID = fs[len(fs)-1].ID
-	}
-	return following, nil
 }
 
 // handleUpdate processes new posts and generates alt-text descriptions if missing
