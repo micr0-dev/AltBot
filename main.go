@@ -225,7 +225,7 @@ func handleMention(c *mastodon.Client, notification *mastodon.Notification) {
 func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *mastodon.Notification) {
 	consentRequests[status.ID] = notification.Status.ID
 
-	message := fmt.Sprintf("@%s"+getLocalizedString(notification.Status.Language, "consentRequest", "response"), status.Account.Acct, notification.Account.Acct)
+	message := fmt.Sprintf("@%s "+getLocalizedString(notification.Status.Language, "consentRequest", "response"), status.Account.Acct, notification.Account.Acct)
 	_, err := c.PostStatus(ctx, &mastodon.Toot{
 		Status:      message,
 		InReplyToID: status.ID,
