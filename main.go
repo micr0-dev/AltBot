@@ -11,6 +11,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"strings"
 	"time"
 
 	"github.com/google/generative-ai-go/genai"
@@ -144,8 +145,7 @@ func Setup(apiKey string) error {
 
 // handleMention processes incoming mentions and generates alt-text descriptions
 func handleMention(c *mastodon.Client, notification *mastodon.Notification) {
-	// Ignore mentions from self
-	if notification.Account.Acct == os.Getenv("MASTODON_USERNAME") {
+	if isDNI(&notification.Account) {
 		return
 	}
 
@@ -172,6 +172,29 @@ func handleMention(c *mastodon.Client, notification *mastodon.Notification) {
 	}
 
 	generateAndPostAltText(c, status, notification.Status.ID)
+}
+
+// isDNI checks if an account meets the Do Not Interact (DNI) conditions
+func isDNI(account *mastodon.Account) bool {
+	dniList := []string{
+		"#nobot",
+		"#noai",
+		"#nollm",
+	}
+
+	if account.Acct == os.Getenv("MASTODON_USERNAME") {
+		return true
+	} else if account.Bot {
+		return true
+	}
+
+	for _, tag := range dniList {
+		if strings.Contains(account.Note, tag) {
+			return true
+		}
+	}
+
+	return false
 }
 
 // handleFollow processes new follows and follows back
