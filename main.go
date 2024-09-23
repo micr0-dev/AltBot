@@ -28,7 +28,6 @@ import (
 
 var model *genai.GenerativeModel
 var ctx context.Context
-var botAccountID mastodon.ID
 
 var consentRequests = make(map[mastodon.ID]mastodon.ID)
 
@@ -37,6 +36,11 @@ func main() {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
+	}
+
+	err = loadLocalizations()
+	if err != nil {
+		log.Fatalf("Error loading localizations: %v", err)
 	}
 
 	var cancel context.CancelFunc
@@ -51,7 +55,7 @@ func main() {
 	})
 
 	// Fetch and verify the bot account ID
-	botAccountID, err = fetchAndVerifyBotAccountID(c)
+	_, err = fetchAndVerifyBotAccountID(c)
 	if err != nil {
 		log.Fatalf("Error fetching bot account ID: %v", err)
 	}
@@ -221,11 +225,12 @@ func handleMention(c *mastodon.Client, notification *mastodon.Notification) {
 func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *mastodon.Notification) {
 	consentRequests[status.ID] = notification.Status.ID
 
-	message := fmt.Sprintf("@%s This bot has been asked to generate an alt text for your image by @%s. Do you consent? Reply with 'Y' or 'Yes' to proceed.", status.Account.Acct, notification.Account.Acct)
+	message := fmt.Sprintf("@%s"+getLocalizedString(notification.Status.Language, "consentRequest", "response"), status.Account.Acct, notification.Account.Acct)
 	_, err := c.PostStatus(ctx, &mastodon.Toot{
 		Status:      message,
 		InReplyToID: status.ID,
 		Visibility:  status.Visibility,
+		Language:    notification.Status.Language,
 	})
 	if err != nil {
 		log.Printf("Error posting consent request: %v", err)
@@ -313,10 +318,10 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		fmt.Printf("Attachment: %s\n", attachment.URL)
 		var response string
 		if attachment.Type == "image" && attachment.Description == "" {
-			altText, err := generateAltText(attachment.URL)
+			altText, err := generateAltText(attachment.URL, replyPost.Language)
 			if err != nil {
 				log.Printf("Error generating alt-text: %v", err)
-				altText = "Sorry, I couldn't process this image."
+				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
 			}
 
 			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText)
@@ -327,9 +332,9 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 				fmt.Printf("Posted alt-text: %s\n", response)
 			}
 		} else if attachment.Description != "" {
-			response = fmt.Sprintf("@%s This image already has alt-text", replyPost.Account.Acct)
+			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response"))
 		} else {
-			response = fmt.Sprintf("@%s This is not an image, only images are supported currently", replyPost.Account.Acct)
+			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "notAnImage", "response"))
 		}
 
 		visibility := replyPost.Visibility
@@ -342,6 +347,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			Status:      response,
 			InReplyToID: replyToID,
 			Visibility:  visibility,
+			Language:    replyPost.Language,
 		})
 
 		if err != nil {
@@ -351,7 +357,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 }
 
 // generateAltText generates alt-text for an image using Gemini AI
-func generateAltText(imageURL string) (string, error) {
+func generateAltText(imageURL string, lang string) (string, error) {
 	resp, err := http.Get(imageURL)
 	if err != nil {
 		return "", err
@@ -369,7 +375,9 @@ func generateAltText(imageURL string) (string, error) {
 		return "", err
 	}
 
-	prompt := "Generate an alt-text description, which is a description for people who can't see the image. Be detailed but dont go too indepth, just write about the main subjects: "
+	prompt := getLocalizedString(lang, "generateAltText", "prompt")
+
+	fmt.Println("Prompt: " + prompt)
 
 	fmt.Println("Processing image: " + imageURL)
 

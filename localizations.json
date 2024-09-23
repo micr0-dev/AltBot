@@ -1,0 +1,123 @@
+{
+    "en": {
+        "prompts": {
+            "generateAltText": "Generate an alt-text description, which is a description for people who can't see the image. Be detailed but don't go too in-depth, just write about the main subjects in English: "
+        },
+        "responses": {
+            "altTextError": "Sorry, I couldn't process this image.",
+            "consentRequest": "This bot has been asked to generate an alt text for your image by @%s. Do you consent? Reply with 'Y' or 'Yes' to proceed.",
+            "imageAlreadyHasAltText": "This image already has alt-text",
+            "notAnImage": "This is not an image, only images are supported currently"
+        }
+    },
+    "ru": {
+        "prompts": {
+            "generateAltText": "Создайте описание для изображения, которое будет полезно для людей, которые не могут его видеть. Будьте подробны, но не слишком углубляйтесь, просто опишите основные объекты на Русском: "
+        },
+        "responses": {
+            "altTextError": "Извините, я не смог обработать это изображение.",
+            "consentRequest": "Этот бот был запрошен для создания описания для вашего изображения от @%s. Вы согласны? Ответьте 'Y' или 'Yes' для продолжения.",
+            "imageAlreadyHasAltText": "У этого изображения уже есть описание",
+            "notAnImage": "Это не изображение, в настоящее время поддерживаются только изображения"
+        }
+    },
+    "be": {
+        "prompts": {
+            "generateAltText": "Стварыце апісанне альтэрнатыўнага тэксту, якое з'яўляецца апісаннем для людзей, якія не могуць бачыць выяву. Будзьце падрабязнымі, але не занадта, проста апішыце асноўныя аб'екты на беларускай мове: "
+        },
+        "responses": {
+            "altTextError": "Прабачце, я не змог апрацаваць гэтае выява.",
+            "consentRequest": "Гэты бот быў запытаны для стварэння альтэрнатыўнага тэксту для вашага выявы ад @%s. Ці згодныя вы? Адкажыце 'Y' або 'Yes' для працягу.",
+            "imageAlreadyHasAltText": "Гэтае выява ўжо мае альтэрнатыўны тэкст",
+            "notAnImage": "Гэта не выява, у цяперашні час падтрымліваюцца толькі выявы"
+        }
+    },
+    "es": {
+        "prompts": {
+            "generateAltText": "Genera una descripción de texto alternativo, que es una descripción para personas que no pueden ver la imagen. Sé detallado pero no te extiendas demasiado, solo escribe sobre los temas principales en Español: "
+        },
+        "responses": {
+            "altTextError": "Lo siento, no pude procesar esta imagen.",
+            "consentRequest": "Este bot ha sido solicitado para generar un texto alternativo para tu imagen por @%s. ¿Das tu consentimiento? Responde con 'Y' o 'Yes' para continuar.",
+            "imageAlreadyHasAltText": "Esta imagen ya tiene texto alternativo",
+            "notAnImage": "Esto no es una imagen, actualmente solo se admiten imágenes"
+        }
+    },
+    "fr": {
+        "prompts": {
+            "generateAltText": "Générez une description de texte alternatif, qui est une description pour les personnes qui ne peuvent pas voir l'image. Soyez détaillé mais ne rentrez pas trop dans les détails, écrivez simplement sur les sujets principaux en Français: "
+        },
+        "responses": {
+            "altTextError": "Désolé, je n'ai pas pu traiter cette image.",
+            "consentRequest": "Ce bot a été demandé pour générer un texte alternatif pour votre image par @%s. Consentez-vous ? Répondez par 'Y' ou 'Yes' pour continuer.",
+            "imageAlreadyHasAltText": "Cette image a déjà un texte alternatif",
+            "notAnImage": "Ce n'est pas une image, seules les images sont actuellement prises en charge"
+        }
+    },
+    "de": {
+        "prompts": {
+            "generateAltText": "Erstellen Sie eine Alt-Text-Beschreibung, die eine Beschreibung für Menschen ist, die das Bild nicht sehen können. Seien Sie detailliert, aber gehen Sie nicht zu sehr ins Detail, schreiben Sie einfach über die Hauptthemen auf Deutsch: "
+        },
+        "responses": {
+            "altTextError": "Entschuldigung, ich konnte dieses Bild nicht verarbeiten.",
+            "consentRequest": "Dieser Bot wurde gebeten, einen Alt-Text für Ihr Bild von @%s zu erstellen. Stimmen Sie zu? Antworten Sie mit 'Y' oder 'Yes', um fortzufahren.",
+            "imageAlreadyHasAltText": "Dieses Bild hat bereits einen Alt-Text",
+            "notAnImage": "Dies ist kein Bild, derzeit werden nur Bilder unterstützt"
+        }
+    },
+    "it": {
+        "prompts": {
+            "generateAltText": "Genera una descrizione del testo alternativo, che è una descrizione per le persone che non possono vedere l'immagine. Sii dettagliato ma non troppo, scrivi solo sui soggetti principali in Italiano: "
+        },
+        "responses": {
+            "altTextError": "Spiacente, non sono riuscito a elaborare questa immagine.",
+            "consentRequest": "Questo bot è stato richiesto per generare un testo alternativo per la tua immagine da @%s. Acconsenti? Rispondi con 'Y' o 'Yes' per procedere.",
+            "imageAlreadyHasAltText": "Questa immagine ha già un testo alternativo",
+            "notAnImage": "Questo non è un'immagine, attualmente sono supportate solo le immagini"
+        }
+    },
+    "ja": {
+        "prompts": {
+            "generateAltText": "画像が見えない人のための説明文である代替テキストの説明を生成してください。詳細に記述してくださいが、あまり深入りせず、主要な主題について日本語で書いてください: "
+        },
+        "responses": {
+            "altTextError": "申し訳ありませんが、この画像を処理できませんでした。",
+            "consentRequest": "このボットは、@%s によってあなたの画像の代替テキストを生成するように依頼されました。 同意しますか？ 続行するには 'Y' または 'Yes' と返信してください。",
+            "imageAlreadyHasAltText": "この画像にはすでに代替テキストがあります",
+            "notAnImage": "これは画像ではありません。現在、サポートされているのは画像のみです"
+        }
+    },
+    "zh": {
+        "prompts": {
+            "generateAltText": "生成替代文本描述，这是为看不见图像的人提供的描述。 请详细描述，但不要过于深入，只需用中文写出主要内容: "
+        },
+        "responses": {
+            "altTextError": "抱歉，我无法处理此图像。",
+            "consentRequest": "此机器人已被 @%s 请求为您的图像生成替代文本。 您同意吗？ 回复 'Y' 或 'Yes' 以继续。",
+            "imageAlreadyHasAltText": "此图像已具有替代文本",
+            "notAnImage": "这不是图像，目前仅支持图像"
+        }
+    },
+    "pt": {
+        "prompts": {
+            "generateAltText": "Gere uma descrição de texto alternativo, que é uma descrição para pessoas que não podem ver a imagem. Seja detalhado, mas não vá muito a fundo, apenas escreva sobre os principais assuntos em Português: "
+        },
+        "responses": {
+            "altTextError": "Desculpe, não consegui processar esta imagem.",
+            "consentRequest": "Este bot foi solicitado para gerar um texto alternativo para sua imagem por @%s. Você consente? Responda com 'Y' ou 'Yes' para continuar.",
+            "imageAlreadyHasAltText": "Esta imagem já possui texto alternativo",
+            "notAnImage": "Isto não é uma imagem, atualmente apenas imagens são suportadas"
+        }
+    },
+    "ko": {
+        "prompts": {
+            "generateAltText": "이미지를 볼 수 없는 사람들을 위한 설명인 대체 텍스트 설명을 생성하세요. 자세히 설명하되 너무 깊이 들어가지 말고 주요 주제에 대해 한국어로 작성하세요: "
+        },
+        "responses": {
+            "altTextError": "죄송합니다. 이 이미지를 처리할 수 없습니다.",
+            "consentRequest": "이 봇은 @%s 에 의해 귀하의 이미지에 대한 대체 텍스트를 생성하도록 요청받았습니다. 동의하십니까? 계속하려면 'Y' 또는 'Yes'로 응답하십시오.",
+            "imageAlreadyHasAltText": "이 이미지에는 이미 대체 텍스트가 있습니다",
+            "notAnImage": "이것은 이미지가 아닙니다. 현재 이미지만 지원됩니다"
+        }
+    }
+}
