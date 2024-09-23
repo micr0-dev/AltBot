@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"image"
+	"image/gif"
 	"image/jpeg"
 	"image/png"
 	"io"
@@ -13,6 +14,10 @@ import (
 	"os"
 	"strings"
 	"time"
+
+	"golang.org/x/image/bmp"
+	"golang.org/x/image/tiff"
+	"golang.org/x/image/webp"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/joho/godotenv"
@@ -403,7 +408,7 @@ func GenerateAlt(strPrompt string, image []byte, fileExtension string) (string, 
 // downscaleImage resizes the image to the specified width while maintaining the aspect ratio
 // and converts it to PNG or JPEG if it is in a different format.
 func downscaleImage(imgData []byte, width uint) ([]byte, string, error) {
-	img, format, err := image.Decode(bytes.NewReader(imgData))
+	img, format, err := decodeImage(imgData)
 	if err != nil {
 		return nil, "", err
 	}
@@ -441,6 +446,40 @@ func downscaleImage(imgData []byte, width uint) ([]byte, string, error) {
 	}
 
 	return buf.Bytes(), format, nil
+}
+
+// decodeImage decodes an image from bytes and returns the image and its format
+func decodeImage(imgData []byte) (image.Image, string, error) {
+	img, format, err := image.Decode(bytes.NewReader(imgData))
+	if err == nil {
+		return img, format, nil
+	}
+
+	// Try decoding as WebP if the standard decoding fails
+	img, err = webp.Decode(bytes.NewReader(imgData))
+	if err == nil {
+		return img, "webp", nil
+	}
+
+	// Try decoding as BMP if the previous decodings fail
+	img, err = bmp.Decode(bytes.NewReader(imgData))
+	if err == nil {
+		return img, "bmp", nil
+	}
+
+	// Try decoding as TIFF if the previous decodings fail
+	img, err = tiff.Decode(bytes.NewReader(imgData))
+	if err == nil {
+		return img, "tiff", nil
+	}
+
+	// Try decoding as GIF if the previous decodings fail
+	img, err = gif.Decode(bytes.NewReader(imgData))
+	if err == nil {
+		return img, "gif", nil
+	}
+
+	return nil, "", fmt.Errorf("unsupported image format: %v", err)
 }
 
 // getResponse extracts the text response from the AI model's output

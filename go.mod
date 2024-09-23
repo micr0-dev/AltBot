@@ -7,6 +7,7 @@ require (
 	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-mastodon v0.0.8
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
+	golang.org/x/image v0.20.0
 	google.golang.org/api v0.198.0
 )
 
