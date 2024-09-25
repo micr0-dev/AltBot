@@ -3,8 +3,8 @@ module AltBot
 go 1.21.11
 
 require (
+	github.com/BurntSushi/toml v0.3.1
 	github.com/google/generative-ai-go v0.18.0
-	github.com/joho/godotenv v1.5.1
 	github.com/mattn/go-mastodon v0.0.8
 	github.com/nfnt/resize v0.0.0-20180221191011-83c6a9932646
 	golang.org/x/image v0.20.0

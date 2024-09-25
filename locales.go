@@ -28,7 +28,7 @@ func loadLocalizations() error {
 }
 
 func getLocalizedString(lang, key string, category string) string {
-	localization := localizations["en"]
+	localization := localizations[config.Localization.DefaultLanguage]
 	if value, ok := localizations[lang]; ok {
 		localization = value
 	}

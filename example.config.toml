@@ -1,0 +1,38 @@
+[server]
+mastodon_server = "https://mastodon.example.com" # Your Mastodon server URL
+client_secret = "your_client_secret"             # Your Mastodon App client secret
+access_token = "your_access_token"               # Your Mastodon App access token
+username = "your_bot_username"                   # Your Mastodon bot's username
+
+[gemini]
+api_key = "your_gemini_api_key" # Replace with your Gemini API key, if you don't have one, you can get it from https://aistudio.google.com/app/apikey
+temperature = 0.7
+top_k = 1
+# Thresholds for the content moderation, setting them to another value than "none" will enable the content moderation may brake some responses
+# Can be set to "none", "low", "medium", "high"
+harassment_threshold = "none"
+hate_speech_threshold = "none"
+sexually_explicit_threshold = "none"
+dangerous_content_threshold = "none"
+
+[localization]
+# Default language for the bot
+default_language = "en"
+
+[dni]
+# List of profile tags that will make the bot ignore the user
+tags = ["#nobot", "#noai", "#nollm"]
+# Should the bot ignore other automated accounts
+ignore_bots = true
+
+[image_processing]
+# Greater values may break the image processing due to haivng a size greater than the maximum allowed by the API
+downscale_width = 800
+
+[behavior]
+# Maximum visibility of the replies to the bot, can be "public", "unlisted", "private" or "direct"
+reply_visibility = "unlisted"
+# Follow back new followers
+follow_back = true
+# Ask for consent when mentioned by none OP users
+ask_for_consent = true

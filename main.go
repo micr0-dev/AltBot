@@ -12,33 +12,73 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/signal"
 	"strings"
-	"time"
+	"syscall"
 
+	"github.com/BurntSushi/toml"
 	"golang.org/x/image/bmp"
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
 
 	"github.com/google/generative-ai-go/genai"
-	"github.com/joho/godotenv"
 	"github.com/mattn/go-mastodon"
 	"github.com/nfnt/resize"
 	"google.golang.org/api/option"
 )
 
+type Config struct {
+	Server struct {
+		MastodonServer string `toml:"mastodon_server"`
+		ClientSecret   string `toml:"client_secret"`
+		AccessToken    string `toml:"access_token"`
+		Username       string `toml:"username"`
+	} `toml:"server"`
+	Gemini struct {
+		APIKey      string  `toml:"api_key"`
+		Temperature float32 `toml:"temperature"`
+		TopK        int32   `toml:"top_k"`
+	} `toml:"gemini"`
+	SafetySettings struct {
+		HarassmentThreshold       string `toml:"harassment_threshold"`
+		HateSpeechThreshold       string `toml:"hate_speech_threshold"`
+		SexuallyExplicitThreshold string `toml:"sexually_explicit_threshold"`
+		DangerousContentThreshold string `toml:"dangerous_content_threshold"`
+	} `toml:"safety_settings"`
+	Localization struct {
+		DefaultLanguage string `toml:"default_language"`
+	} `toml:"localization"`
+	DNI struct {
+		Tags       []string `toml:"tags"`
+		IgnoreBots bool     `toml:"ignore_bots"`
+	} `toml:"dni"`
+	ImageProcessing struct {
+		DownscaleWidth uint `toml:"downscale_width"`
+	} `toml:"image_processing"`
+	Behavior struct {
+		ReplyVisibility string `toml:"reply_visibility"`
+		FollowBack      bool   `toml:"follow_back"`
+		AskForConsent   bool   `toml:"ask_for_consent"`
+	} `toml:"behavior"`
+}
+
+var config Config
 var model *genai.GenerativeModel
 var ctx context.Context
 
 var consentRequests = make(map[mastodon.ID]mastodon.ID)
 
 func main() {
-	// Load environment variables and set up Mastodon client
-	err := godotenv.Load()
-	if err != nil {
-		log.Fatal("Error loading .env file")
+	// Load configuration from TOML file
+	if _, err := toml.DecodeFile("config.toml", &config); err != nil {
+		log.Fatalf("Error loading config.toml: %v", err)
 	}
 
-	err = loadLocalizations()
+	if config.Server.MastodonServer == "https://mastodon.example.com" {
+		log.Fatal("Please configure the Mastodon server in config.toml")
+	}
+
+	err := loadLocalizations()
 	if err != nil {
 		log.Fatalf("Error loading localizations: %v", err)
 	}
@@ -47,11 +87,20 @@ func main() {
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
 
+	// Set up signal handling for graceful shutdown
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
+
+	go func() {
+		sig := <-sigChan
+		fmt.Printf("Received signal: %v. Shutting down...\n", sig)
+		cancel()
+	}()
+
 	c := mastodon.NewClient(&mastodon.Config{
-		Server:       os.Getenv("MASTODON_SERVER"),
-		ClientID:     os.Getenv("MASTODON_CLIENT_ID"),
-		ClientSecret: os.Getenv("MASTODON_CLIENT_SECRET"),
-		AccessToken:  os.Getenv("MASTODON_ACCESS_TOKEN"),
+		Server:       config.Server.MastodonServer,
+		ClientSecret: config.Server.ClientSecret,
+		AccessToken:  config.Server.AccessToken,
 	})
 
 	// Fetch and verify the bot account ID
@@ -61,7 +110,7 @@ func main() {
 	}
 
 	// Set up Gemini AI model
-	err = Setup(os.Getenv("GEMINI_API_KEY"))
+	err = Setup(config.Gemini.APIKey)
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -75,10 +124,6 @@ func main() {
 	}
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
-
-	// Schedule periodic unfollow checks
-	ticker := time.NewTicker(30 * time.Minute)
-	defer ticker.Stop()
 
 	// Main event loop
 	for event := range events {
@@ -155,29 +200,45 @@ func Setup(apiKey string) error {
 
 	model = client.GenerativeModel("gemini-1.5-flash")
 
-	model.SetTemperature(0.7)
-	model.SetTopK(1)
+	model.SetTemperature(config.Gemini.Temperature)
+	model.SetTopK(config.Gemini.TopK)
 
 	model.SafetySettings = []*genai.SafetySetting{
 		{
 			Category:  genai.HarmCategoryHarassment,
-			Threshold: genai.HarmBlockNone,
+			Threshold: mapHarmBlock(config.SafetySettings.HarassmentThreshold),
 		},
 		{
 			Category:  genai.HarmCategoryHateSpeech,
-			Threshold: genai.HarmBlockNone,
+			Threshold: mapHarmBlock(config.SafetySettings.HateSpeechThreshold),
 		},
 		{
 			Category:  genai.HarmCategorySexuallyExplicit,
-			Threshold: genai.HarmBlockNone,
+			Threshold: mapHarmBlock(config.SafetySettings.SexuallyExplicitThreshold),
 		},
 		{
 			Category:  genai.HarmCategoryDangerousContent,
-			Threshold: genai.HarmBlockNone,
+			Threshold: mapHarmBlock(config.SafetySettings.DangerousContentThreshold),
 		},
 	}
 
 	return nil
+}
+
+// mapHarmBlock maps the TOML string values to the genai package constants
+func mapHarmBlock(threshold string) genai.HarmBlockThreshold {
+	switch threshold {
+	case "none":
+		return genai.HarmBlockNone
+	case "low":
+		return genai.HarmBlockLowAndAbove
+	case "medium":
+		return genai.HarmBlockMediumAndAbove
+	case "high":
+		return genai.HarmBlockOnlyHigh
+	default:
+		return genai.HarmBlockNone
+	}
 }
 
 // handleMention processes incoming mentions and generates alt-text descriptions
@@ -215,6 +276,8 @@ func handleMention(c *mastodon.Client, notification *mastodon.Notification) {
 
 	// Check if the person who mentioned the bot is the OP
 	if status.Account.ID == notification.Account.ID {
+		generateAndPostAltText(c, status, notification.Status.ID)
+	} else if !config.Behavior.AskForConsent {
 		generateAndPostAltText(c, status, notification.Status.ID)
 	} else {
 		requestConsent(c, status, notification)
@@ -258,15 +321,11 @@ func handleConsentResponse(c *mastodon.Client, ID mastodon.ID, consentStatus *ma
 
 // isDNI checks if an account meets the Do Not Interact (DNI) conditions
 func isDNI(account *mastodon.Account) bool {
-	dniList := []string{
-		"#nobot",
-		"#noai",
-		"#nollm",
-	}
+	dniList := config.DNI.Tags
 
-	if account.Acct == os.Getenv("MASTODON_USERNAME") {
+	if account.Acct == config.Server.Username {
 		return true
-	} else if account.Bot {
+	} else if account.Bot && config.DNI.IgnoreBots {
 		return true
 	}
 
@@ -281,17 +340,19 @@ func isDNI(account *mastodon.Account) bool {
 
 // handleFollow processes new follows and follows back
 func handleFollow(c *mastodon.Client, notification *mastodon.Notification) {
-	_, err := c.AccountFollow(ctx, notification.Account.ID)
-	if err != nil {
-		log.Printf("Error following back: %v", err)
-		return
+	if config.Behavior.FollowBack {
+		_, err := c.AccountFollow(ctx, notification.Account.ID)
+		if err != nil {
+			log.Printf("Error following back: %v", err)
+			return
+		}
+		fmt.Printf("Followed back: %s\n", notification.Account.Acct)
 	}
-	fmt.Printf("Followed back: %s\n", notification.Account.Acct)
 }
 
 // handleUpdate processes new posts and generates alt-text descriptions if missing
 func handleUpdate(c *mastodon.Client, status *mastodon.Status) {
-	if status.Account.Acct == os.Getenv("MASTODON_USERNAME") {
+	if status.Account.Acct == config.Server.Username {
 		return
 	}
 
@@ -334,9 +395,40 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		}
 
 		visibility := replyPost.Visibility
-
-		if visibility == "public" {
+		// Map the visibility of the reply based on the original post and the bot's settings
+		switch strings.ToLower(config.Behavior.ReplyVisibility + "," + replyPost.Visibility) {
+		case "public,public":
+			visibility = "public"
+		case "public,unlisted":
 			visibility = "unlisted"
+		case "public,private":
+			visibility = "private"
+		case "public,direct":
+			visibility = "direct"
+		case "unlisted,public":
+			visibility = "unlisted"
+		case "unlisted,unlisted":
+			visibility = "unlisted"
+		case "unlisted,private":
+			visibility = "private"
+		case "unlisted,direct":
+			visibility = "direct"
+		case "private,public":
+			visibility = "private"
+		case "private,unlisted":
+			visibility = "private"
+		case "private,private":
+			visibility = "private"
+		case "private,direct":
+			visibility = "direct"
+		case "direct,public":
+			visibility = "direct"
+		case "direct,unlisted":
+			visibility = "direct"
+		case "direct,private":
+			visibility = "direct"
+		case "direct,direct":
+			visibility = "direct"
 		}
 
 		_, err = c.PostStatus(ctx, &mastodon.Toot{
@@ -365,8 +457,8 @@ func generateAltText(imageURL string, lang string) (string, error) {
 		return "", err
 	}
 
-	// Downscale the image to a smaller width (e.g., 800 pixels)
-	downscaledImg, format, err := downscaleImage(img, 800)
+	// Downscale the image to a smaller width using config settings
+	downscaledImg, format, err := downscaleImage(img, config.ImageProcessing.DownscaleWidth)
 	if err != nil {
 		return "", err
 	}
