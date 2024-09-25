@@ -12,9 +12,8 @@ import (
 	"log"
 	"net/http"
 	"os"
-	"os/signal"
+	"os/exec"
 	"strings"
-	"syscall"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/image/bmp"
@@ -34,6 +33,10 @@ type Config struct {
 		AccessToken    string `toml:"access_token"`
 		Username       string `toml:"username"`
 	} `toml:"server"`
+	LLM struct {
+		Provider    string `toml:"provider"`
+		OllamaModel string `toml:"ollama_model"`
+	} `toml:"llm"`
 	Gemini struct {
 		APIKey      string  `toml:"api_key"`
 		Temperature float32 `toml:"temperature"`
@@ -78,6 +81,13 @@ func main() {
 		log.Fatal("Please configure the Mastodon server in config.toml")
 	}
 
+	if config.LLM.Provider == "ollama" {
+		err := checkOllamaModel()
+		if err != nil {
+			log.Fatalf("Error checking Ollama model: %v", err)
+		}
+	}
+
 	err := loadLocalizations()
 	if err != nil {
 		log.Fatalf("Error loading localizations: %v", err)
@@ -86,16 +96,6 @@ func main() {
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
-
-	// Set up signal handling for graceful shutdown
-	sigChan := make(chan os.Signal, 1)
-	signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM)
-
-	go func() {
-		sig := <-sigChan
-		fmt.Printf("Received signal: %v. Shutting down...\n", sig)
-		cancel()
-	}()
 
 	c := mastodon.NewClient(&mastodon.Config{
 		Server:       config.Server.MastodonServer,
@@ -395,6 +395,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		}
 
 		visibility := replyPost.Visibility
+
 		// Map the visibility of the reply based on the original post and the bot's settings
 		switch strings.ToLower(config.Behavior.ReplyVisibility + "," + replyPost.Visibility) {
 		case "public,public":
@@ -444,7 +445,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	}
 }
 
-// generateAltText generates alt-text for an image using Gemini AI
+// generateAltText generates alt-text for an image using Gemini AI or Ollama
 func generateAltText(imageURL string, lang string) (string, error) {
 	resp, err := http.Get(imageURL)
 	if err != nil {
@@ -467,11 +468,18 @@ func generateAltText(imageURL string, lang string) (string, error) {
 
 	fmt.Println("Processing image: " + imageURL)
 
-	return GenerateAlt(prompt, downscaledImg, format)
+	switch config.LLM.Provider {
+	case "gemini":
+		return GenerateAltWithGemini(prompt, downscaledImg, format)
+	case "ollama":
+		return GenerateAltWithOllama(prompt, downscaledImg, format)
+	default:
+		return "", fmt.Errorf("unsupported LLM provider: %s", config.LLM.Provider)
+	}
 }
 
 // Generate creates a response using the Gemini AI model
-func GenerateAlt(strPrompt string, image []byte, fileExtension string) (string, error) {
+func GenerateAltWithGemini(strPrompt string, image []byte, fileExtension string) (string, error) {
 	var parts []genai.Part
 
 	parts = append(parts, genai.Text(strPrompt))
@@ -484,6 +492,41 @@ func GenerateAlt(strPrompt string, image []byte, fileExtension string) (string, 
 		return "", err
 	}
 	return getResponse(resp), nil
+}
+
+// GenerateAltWithOllama generates alt-text using the Ollama model
+func GenerateAltWithOllama(strPrompt string, image []byte, fileExtension string) (string, error) {
+	// Save the image temporarily
+	tmpFile, err := os.CreateTemp("", "image.*."+fileExtension)
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(tmpFile.Name())
+
+	if _, err := tmpFile.Write(image); err != nil {
+		return "", err
+	}
+	if err := tmpFile.Close(); err != nil {
+		return "", err
+	}
+
+	// Run the Ollama command
+	return runOllamaCommand(strPrompt, tmpFile.Name(), config.LLM.OllamaModel)
+}
+
+// runOllamaCommand runs the Ollama command to generate alt-text for an image
+func runOllamaCommand(prompt, imagePath, model string) (string, error) {
+	cmd := exec.Command("ollama", "run", model, fmt.Sprintf("%s %s", prompt, imagePath))
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	err := cmd.Run()
+	if err != nil {
+		return "", err
+	}
+
+	return out.String(), nil
 }
 
 // downscaleImage resizes the image to the specified width while maintaining the aspect ratio
@@ -575,4 +618,23 @@ func getResponse(resp *genai.GenerateContentResponse) string {
 		}
 	}
 	return response
+}
+
+// checkOllamaModel checks if the Ollama model is available and working
+func checkOllamaModel() error {
+	cmd := exec.Command("ollama", "list")
+
+	var out bytes.Buffer
+	cmd.Stdout = &out
+
+	err := cmd.Run()
+	if err != nil {
+		return err
+	}
+
+	if !strings.Contains(out.String(), config.LLM.OllamaModel) {
+		return fmt.Errorf("ollama model not found: %s\nInstall it via:\nollama run %s", config.LLM.OllamaModel, config.LLM.OllamaModel)
+	}
+
+	return nil
 }

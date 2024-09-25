@@ -10,6 +10,9 @@ AltBot listens for mentions and follows on Mastodon. When it detects a mention o
 
 - **Mention-Based Alt-Text Generation:** Mention @AltBot in a reply to any post containing an image, and AltBot will generate an alt-text description for it.
 - **Automatic Alt-Text for Followers:** Follow @AltBot, and it will monitor your posts. If you post an image without alt-text, AltBot will automatically generate one for you.
+- **Local LLM Support:** Use local LLMs via Ollama for generating alt-text descriptions.
+- **Consent Requests:** Ask for consent from the original poster before generating alt-text when mentioned by non-OP users.
+- **Configurable Settings:** Easily configure the bot using a TOML file.
 
 ## Privacy Note
 
@@ -27,14 +30,57 @@ Alt-texts are generated using a Large Language Model (LLM). While we strive for 
     cd AltBot
     ```
 
-2. Create a `.env` file with the following environment variables:
-    ```env
-    MASTODON_SERVER=https://mastodon.example.com
-    MASTODON_CLIENT_ID=your_client_id
-    MASTODON_CLIENT_SECRET=your_client_secret
-    MASTODON_ACCESS_TOKEN=your_access_token
-    MASTODON_USERNAME=your_bot_username
-    GEMINI_API_KEY=your_gemini_api_key
+2. Copy the example configuration file and edit it:
+    ```sh
+    cp example.config.toml config.toml
+    ```
+
+    Open `config.toml` in your favorite text editor and update the values as needed. Here is an example of what the file looks like:
+
+    ```toml
+    [server]
+    mastodon_server = "https://mastodon.example.com" # Your Mastodon server URL
+    client_secret = "your_client_secret"             # Your Mastodon App client secret
+    access_token = "your_access_token"               # Your Mastodon App access token
+    username = "your_bot_username"                   # Your Mastodon bot's username
+
+    [llm]
+    provider = "gemini"         # or "ollama"
+    ollama_model = "llava-phi3"
+
+    [gemini]
+    api_key = "your_gemini_api_key" # Replace with your Gemini API key, if you don't have one, you can get it from https://aistudio.google.com/app/apikey
+    model = "gemini-1.5-flash"      # or "gemini-1.5-pro" Note: "gemini-1.5-pro" allows for only 2 Requests per Minute while "gemini-1.5-flash" allows for 15 Requests per Minute
+    temperature = 0.7
+    top_k = 1
+    # Thresholds for the content moderation, setting them to another value than "none" will enable the content moderation may brake some responses
+    # Can be set to "none", "low", "medium", "high"
+    harassment_threshold = "none"
+    hate_speech_threshold = "none"
+    sexually_explicit_threshold = "none"
+    dangerous_content_threshold = "none"
+
+    [localization]
+    # Default language for the bot
+    default_language = "en"
+
+    [dni]
+    # List of profile tags that will make the bot ignore the user
+    tags = ["#nobot", "#noai", "#nollm"]
+    # Should the bot ignore other automated accounts
+    ignore_bots = true
+
+    [image_processing]
+    # Greater values may break the image processing due to having a size greater than the maximum allowed by the API
+    downscale_width = 800
+
+    [behavior]
+    # Maximum visibility of the replies to the bot, can be "public", "unlisted", "private" or "direct"
+    reply_visibility = "unlisted"
+    # Follow back new followers
+    follow_back = true
+    # Ask for consent when mentioned by none OP users
+    ask_for_consent = true
     ```
 
 3. Install dependencies:
