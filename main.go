@@ -379,6 +379,9 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			if err != nil {
 				log.Printf("Error generating alt-text: %v", err)
 				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+			} else if altText == "" {
+				log.Printf("Error generating alt-text: Empty response")
+				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
 			}
 
 			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText)
