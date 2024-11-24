@@ -60,7 +60,7 @@
         },
         "responses": {
             "altTextError": "Entschuldigung, ich konnte dieses Bild nicht verarbeiten.",
-            "consentRequest": "Dieser Bot wurde gebeten, einen Alt-Text für Ihr Bild von @%s zu erstellen. Stimmen Sie zu? Antworten Sie mit 'Y' oder 'Yes', um fortzufahren.",
+            "consentRequest": "Dieser Bot wurde durch @%s gebeten, einen Alt-Text für Ihr Bild zu erstellen. Stimmen Sie zu? Antworten Sie mit 'Y' oder 'Yes', um fortzufahren.",
             "imageAlreadyHasAltText": "Dieses Bild hat bereits einen Alt-Text",
             "notAnImage": "Dies ist kein Bild, derzeit werden nur Bilder unterstützt"
         }
