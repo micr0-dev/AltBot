@@ -372,31 +372,34 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		return
 	}
 
+	var responses []string
+	altTextGenerated := false
+	altTextAlreadyExists := false
+
 	for _, attachment := range status.MediaAttachments {
-		var response string
-		if attachment.Type == "image" && attachment.Description == "" {
-			altText, err := generateAltText(attachment.URL, replyPost.Language)
-			if err != nil {
-				log.Printf("Error generating alt-text: %v", err)
-				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
-			} else if altText == "" {
-				log.Printf("Error generating alt-text: Empty response")
-				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+		if attachment.Type == "image" {
+			if attachment.Description == "" {
+				altText, err := generateAltText(attachment.URL, replyPost.Language)
+				if err != nil {
+					log.Printf("Error generating alt-text: %v", err)
+					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+				} else if altText == "" {
+					log.Printf("Error generating alt-text: Empty response")
+					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+				}
+				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText))
+				altTextGenerated = true
+			} else if !altTextGenerated && !altTextAlreadyExists {
+				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
+				altTextAlreadyExists = true
 			}
-
-			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText)
-
-			if err != nil {
-				log.Printf("Error posting alt-text: %v", err)
-			} else {
-				fmt.Printf("Posted alt-text: %s\n", response)
-			}
-		} else if attachment.Description != "" {
-			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response"))
 		} else {
-			response = fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "notAnImage", "response"))
+			responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "notAnImage", "response")))
 		}
+	}
 
+	// Post all accumulated responses
+	for _, response := range responses {
 		visibility := replyPost.Visibility
 
 		// Map the visibility of the reply based on the original post and the bot's settings
