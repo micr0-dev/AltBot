@@ -26,6 +26,16 @@ import (
 	"google.golang.org/api/option"
 )
 
+// Version of the bot
+const Version = "1.2.0"
+
+// AsciiArt is the ASCII art for the bot
+const AsciiArt = `    _   _ _   ___     _   
+   /_\ | | |_| _ )___| |_ 
+  / _ \| |  _| _ / _ |  _|
+ /_/ \_|_|\__|___\___/\__|
+`
+
 type Config struct {
 	Server struct {
 		MastodonServer string `toml:"mastodon_server"`
@@ -63,6 +73,13 @@ type Config struct {
 		FollowBack      bool   `toml:"follow_back"`
 		AskForConsent   bool   `toml:"ask_for_consent"`
 	} `toml:"behavior"`
+	WeeklySummary struct {
+		Enabled         bool     `toml:"enabled"`
+		PostDay         string   `toml:"post_day"`
+		PostTime        string   `toml:"post_time"`
+		MessageTemplate string   `toml:"message_template"`
+		Tips            []string `toml:"tips"`
+	} `toml:"weekly_summary"`
 }
 
 var config Config
@@ -93,6 +110,10 @@ func main() {
 		log.Fatalf("Error loading localizations: %v", err)
 	}
 
+	// Print the version and art
+	fmt.Print(AsciiArt)
+	fmt.Printf("AltBot v%s (%s)\n", Version, config.LLM.Provider)
+
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
@@ -121,6 +142,10 @@ func main() {
 	events, err := ws.StreamingWSUser(ctx)
 	if err != nil {
 		log.Fatalf("Error connecting to streaming API: %v", err)
+	}
+
+	if config.WeeklySummary.Enabled {
+		go startWeeklySummaryScheduler(c)
 	}
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
@@ -185,7 +210,7 @@ func fetchAndVerifyBotAccountID(c *mastodon.Client) (mastodon.ID, error) {
 	if err != nil {
 		return "", err
 	}
-	fmt.Printf("Bot Account ID: %s, Username: %s\n", acct.ID, acct.Acct)
+	fmt.Printf("Bot Account ID: %s, Username: %s\n\n", acct.ID, acct.Acct)
 	return acct.ID, nil
 }
 
@@ -346,6 +371,7 @@ func handleFollow(c *mastodon.Client, notification *mastodon.Notification) {
 			log.Printf("Error following back: %v", err)
 			return
 		}
+		LogEvent("new_follower")
 		fmt.Printf("Followed back: %s\n", notification.Account.Acct)
 	}
 }
@@ -357,9 +383,13 @@ func handleUpdate(c *mastodon.Client, status *mastodon.Status) {
 	}
 
 	for _, attachment := range status.MediaAttachments {
-		if attachment.Type == "image" && attachment.Description == "" {
-			generateAndPostAltText(c, status, status.ID)
-			break
+		if attachment.Type == "image" {
+			if attachment.Description == "" {
+				generateAndPostAltText(c, status, status.ID)
+				break
+			} else {
+				LogEventWithUsername("human_written_alt_text", status.Account.Acct)
+			}
 		}
 	}
 }
@@ -476,6 +506,8 @@ func generateAltText(imageURL string, lang string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+
+	LogEvent("alt_text_generated")
 
 	prompt := getLocalizedString(lang, "generateAltText", "prompt")
 
