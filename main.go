@@ -398,6 +398,12 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		}
 	}
 
+	// Prepare the content warning for the reply
+	contentWarning := status.SpoilerText
+	if contentWarning != "" && !strings.HasPrefix(contentWarning, "re:") {
+		contentWarning = "re: " + contentWarning
+	}
+
 	// Post all accumulated responses
 	for _, response := range responses {
 		visibility := replyPost.Visibility
@@ -443,6 +449,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			InReplyToID: replyToID,
 			Visibility:  visibility,
 			Language:    replyPost.Language,
+			SpoilerText: contentWarning,
 		})
 
 		if err != nil {
