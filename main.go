@@ -311,6 +311,24 @@ func handleMention(c *mastodon.Client, notification *mastodon.Notification) {
 
 // requestConsent asks the original poster for consent to generate alt text
 func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *mastodon.Notification) {
+	// Check if every image in the post already has a Alt text
+	hasAltText := true
+
+	for _, attachment := range status.MediaAttachments {
+		if attachment.Type == "image" && attachment.Description == "" {
+			hasAltText = false
+		}
+	}
+
+	if hasAltText {
+		return
+	}
+
+	// Check if the original poster has already been asked for consent
+	if _, ok := consentRequests[status.ID]; ok {
+		return
+	}
+
 	consentRequests[status.ID] = notification.Status.ID
 
 	message := fmt.Sprintf("@%s "+getLocalizedString(notification.Status.Language, "consentRequest", "response"), status.Account.Acct, notification.Account.Acct)
