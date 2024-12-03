@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"strings"
+	"sync"
+	"time"
 
 	"github.com/BurntSushi/toml"
 	"golang.org/x/image/bmp"
@@ -148,6 +150,9 @@ func main() {
 		go startWeeklySummaryScheduler(c)
 	}
 
+	// Start a goroutine for periodic cleanup of old reply entries
+	go cleanupOldEntries()
+
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
 
 	// Main event loop
@@ -197,7 +202,7 @@ func main() {
 		case *mastodon.ErrorEvent:
 			log.Printf("Error event: %v", e.Error())
 		case *mastodon.DeleteEvent:
-			log.Printf("Delete event: status ID %v", e.ID)
+			handleDeleteEvent(c, e.ID)
 		default:
 			log.Printf("Unhandled event type: %T", e)
 		}
@@ -492,7 +497,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			visibility = "direct"
 		}
 
-		_, err = c.PostStatus(ctx, &mastodon.Toot{
+		reply, err := c.PostStatus(ctx, &mastodon.Toot{
 			Status:      response,
 			InReplyToID: replyToID,
 			Visibility:  visibility,
@@ -503,6 +508,12 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		if err != nil {
 			log.Printf("Error posting reply: %v", err)
 		}
+
+		// Track the reply with a timestamp
+		mapMutex.Lock()
+		replyMap[status.ID] = ReplyInfo{ReplyID: reply.ID, Timestamp: time.Now()}
+		mapMutex.Unlock()
+
 	}
 }
 
@@ -700,4 +711,43 @@ func checkOllamaModel() error {
 	}
 
 	return nil
+}
+
+// Struct to store reply information with a timestamp
+type ReplyInfo struct {
+	ReplyID   mastodon.ID
+	Timestamp time.Time
+}
+
+var replyMap = make(map[mastodon.ID]ReplyInfo)
+var mapMutex sync.Mutex
+
+func handleDeleteEvent(c *mastodon.Client, originalID mastodon.ID) {
+	mapMutex.Lock()
+	defer mapMutex.Unlock()
+
+	if replyInfo, exists := replyMap[originalID]; exists {
+		// Delete AltBot's reply
+		err := c.DeleteStatus(ctx, replyInfo.ReplyID)
+		if err != nil {
+			log.Printf("Error deleting reply: %v", err)
+		} else {
+			log.Printf("Deleted reply for original post ID: %v", originalID)
+			delete(replyMap, originalID)
+		}
+	}
+}
+
+func cleanupOldEntries() {
+	for {
+		time.Sleep(10 * time.Minute) // Run cleanup every 10 minutes
+
+		mapMutex.Lock()
+		for originalID, replyInfo := range replyMap {
+			if time.Since(replyInfo.Timestamp) > time.Hour {
+				delete(replyMap, originalID)
+			}
+		}
+		mapMutex.Unlock()
+	}
 }
