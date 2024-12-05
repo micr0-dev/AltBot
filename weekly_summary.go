@@ -54,12 +54,14 @@ func GenerateWeeklySummary(c *mastodon.Client, ctx context.Context) {
 	message = strings.ReplaceAll(message, "{{leaderboard}}", leaderboard)
 
 	// Post the summary
-	_, err = c.PostStatus(ctx, &mastodon.Toot{
+	post, err := c.PostStatus(ctx, &mastodon.Toot{
 		Status:     message,
-		Visibility: "direct",
+		Visibility: "public",
 	})
 	if err != nil {
 		log.Printf("Error posting weekly summary: %v", err)
+	} else {
+		log.Printf("Weekly summary posted! \nLink: %s", post.URL)
 	}
 }
 
