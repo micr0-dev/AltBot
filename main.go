@@ -29,7 +29,7 @@ import (
 )
 
 // Version of the bot
-const Version = "1.2.2"
+const Version = "1.3"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -406,7 +406,7 @@ func handleUpdate(c *mastodon.Client, status *mastodon.Status) {
 	}
 
 	for _, attachment := range status.MediaAttachments {
-		if attachment.Type == "image" {
+		if attachment.Type == "image" || attachment.Type == "video" || attachment.Type == "gifv" || attachment.Type == "audio" {
 			if attachment.Description == "" {
 				generateAndPostAltText(c, status, status.ID)
 				break
@@ -430,9 +430,9 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	altTextAlreadyExists := false
 
 	for _, attachment := range status.MediaAttachments {
-		if attachment.Type == "image" {
+		if attachment.Type == "image" || attachment.Type == "gifv" {
 			if attachment.Description == "" {
-				altText, err := generateAltText(attachment.URL, replyPost.Language)
+				altText, err := generateImageAltText(attachment.URL, replyPost.Language)
 				if err != nil {
 					log.Printf("Error generating alt-text: %v", err)
 					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
@@ -446,6 +446,10 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
 				altTextAlreadyExists = true
 			}
+		} else if attachment.Type == "video" {
+
+		} else if attachment.Type == "audio" {
+
 		} else {
 			responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "notAnImage", "response")))
 		}
@@ -517,8 +521,8 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	}
 }
 
-// generateAltText generates alt-text for an image using Gemini AI or Ollama
-func generateAltText(imageURL string, lang string) (string, error) {
+// generateImageAltText generates alt-text for an image using Gemini AI or Ollama
+func generateImageAltText(imageURL string, lang string) (string, error) {
 	resp, err := http.Get(imageURL)
 	if err != nil {
 		return "", err
