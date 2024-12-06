@@ -29,7 +29,7 @@ import (
 )
 
 // Version of the bot
-const Version = "1.2.2"
+const Version = "1.2.3"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -171,6 +171,11 @@ func main() {
 					}
 
 					getStatus, err := c.GetStatus(ctx, originalStatusID)
+
+					if getStatus == nil {
+						log.Printf("Error fetching original status: %v", err)
+						break
+					}
 
 					if err != nil {
 						handleMention(c, e.Notification)
