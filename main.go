@@ -598,30 +598,28 @@ func downloadToTempFile(fileURL, prefix, extension string) (string, error) {
 
 // generateImageAltText generates alt-text for an image using Gemini AI or Ollama
 func generateImageAltText(imageURL string, lang string) (string, error) {
-	prompt := getLocalizedString(lang, "generateAltText", "prompt")
-
-	fmt.Println("Processing image: " + imageURL)
-
-	// Use the helper function to download the image
-	imageFilePath, err := downloadToTempFile(imageURL, "image", "jpg") // Assuming JPEG as a common format
+	resp, err := http.Get(imageURL)
 	if err != nil {
 		return "", err
 	}
-	defer os.Remove(imageFilePath) // Clean up the file afterwards
+	defer resp.Body.Close()
 
-	// Read the image content from the temporary file
-	imageData, err := os.ReadFile(imageFilePath)
+	img, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return "", err
 	}
 
 	// Downscale the image to a smaller width using config settings
-	downscaledImg, format, err := downscaleImage(imageData, config.ImageProcessing.DownscaleWidth)
+	downscaledImg, format, err := downscaleImage(img, config.ImageProcessing.DownscaleWidth)
 	if err != nil {
 		return "", err
 	}
 
 	LogEvent("alt_text_generated")
+
+	prompt := getLocalizedString(lang, "generateAltText", "prompt")
+
+	fmt.Println("Processing image: " + imageURL)
 
 	switch config.LLM.Provider {
 	case "gemini":
