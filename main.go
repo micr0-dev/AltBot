@@ -559,30 +559,63 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	}
 }
 
-// generateImageAltText generates alt-text for an image using Gemini AI or Ollama
-func generateImageAltText(imageURL string, lang string) (string, error) {
-	resp, err := http.Get(imageURL)
+// downloadToTempFile downloads a file from a given URL and saves it to a temporary file.
+// It returns the path to the temporary file.
+func downloadToTempFile(fileURL, prefix, extension string) (string, error) {
+	// Download the file from the remote URL
+	resp, err := http.Get(fileURL)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
 
-	img, err := io.ReadAll(resp.Body)
+	// Read the file content
+	fileData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	// Create a temporary file to save the content
+	tmpFile, err := os.CreateTemp("", prefix+"-*."+extension)
+	if err != nil {
+		return "", err
+	}
+	defer tmpFile.Close()
+
+	// Write the file data to the temporary file
+	if _, err := tmpFile.Write(fileData); err != nil {
+		return "", err
+	}
+
+	return tmpFile.Name(), nil
+}
+
+// generateImageAltText generates alt-text for an image using Gemini AI or Ollama
+func generateImageAltText(imageURL string, lang string) (string, error) {
+	prompt := getLocalizedString(lang, "generateAltText", "prompt")
+
+	fmt.Println("Processing image: " + imageURL)
+
+	// Use the helper function to download the image
+	imageFilePath, err := downloadToTempFile(imageURL, "image", "jpg") // Assuming JPEG as a common format
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(imageFilePath) // Clean up the file afterwards
+
+	// Read the image content from the temporary file
+	imageData, err := os.ReadFile(imageFilePath)
 	if err != nil {
 		return "", err
 	}
 
 	// Downscale the image to a smaller width using config settings
-	downscaledImg, format, err := downscaleImage(img, config.ImageProcessing.DownscaleWidth)
+	downscaledImg, format, err := downscaleImage(imageData, config.ImageProcessing.DownscaleWidth)
 	if err != nil {
 		return "", err
 	}
 
 	LogEvent("alt_text_generated")
-
-	prompt := getLocalizedString(lang, "generateAltText", "prompt")
-
-	fmt.Println("Processing image: " + imageURL)
 
 	switch config.LLM.Provider {
 	case "gemini":
@@ -600,36 +633,17 @@ func generateVideoAltText(videoURL string, lang string) (string, error) {
 
 	fmt.Println("Processing video: " + videoURL)
 
-	// Download the video from the remote URL
-	resp, err := http.Get(videoURL)
+	// Use the helper function to download the video
+	videoFilePath, err := downloadToTempFile(videoURL, "video", "mp4")
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer os.Remove(videoFilePath) // Clean up the file afterwards
 
-	// Read the video content
-	videoData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// Create a temporary file to save the video
-	tmpFile, err := os.CreateTemp("", "video-*.mp4")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmpFile.Name()) // Clean up the file afterwards
-
-	// Write the video data to the temporary file
-	if _, err := tmpFile.Write(videoData); err != nil {
-		return "", err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return "", err
-	}
+	LogEvent("video_alt_text_generated")
 
 	// Pass the local temporary file path to GenerateVideoAltWithGemini
-	return GenerateVideoAltWithGemini(prompt, tmpFile.Name())
+	return GenerateVideoAltWithGemini(prompt, videoFilePath)
 }
 
 // generateAudioAltText generates alt-text for an audio file using Gemini AI
@@ -638,36 +652,17 @@ func generateAudioAltText(audioURL string, lang string) (string, error) {
 
 	fmt.Println("Processing audio: " + audioURL)
 
-	// Download the audio from the remote URL
-	resp, err := http.Get(audioURL)
+	// Use the helper function to download the audio
+	audioFilePath, err := downloadToTempFile(audioURL, "audio", "mp3")
 	if err != nil {
 		return "", err
 	}
-	defer resp.Body.Close()
+	defer os.Remove(audioFilePath) // Clean up the file afterwards
 
-	// Read the audio content
-	audioData, err := io.ReadAll(resp.Body)
-	if err != nil {
-		return "", err
-	}
-
-	// Create a temporary file to save the audio
-	tmpFile, err := os.CreateTemp("", "audio-*.mp3")
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmpFile.Name()) // Clean up the file afterwards
-
-	// Write the audio data to the temporary file
-	if _, err := tmpFile.Write(audioData); err != nil {
-		return "", err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return "", err
-	}
+	LogEvent("audio_alt_text_generated")
 
 	// Pass the local temporary file path to GenerateAudioAltWithGemini
-	return GenerateAudioAltWithGemini(prompt, tmpFile.Name())
+	return GenerateAudioAltWithGemini(prompt, audioFilePath)
 }
 
 // Generate creates a response using the Gemini AI model
