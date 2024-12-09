@@ -34,7 +34,7 @@ import (
 
 // Version of the bot
 
-const Version = "1.3"
+const Version = "1.3.1"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -340,7 +340,7 @@ func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *m
 	hasAltText := true
 
 	for _, attachment := range status.MediaAttachments {
-		if attachment.Description == "" && attachment.Type == "image" || ((attachment.Type == "video" || attachment.Type == "gifv" || attachment.Type == "audio") && videoAudioProcessingCapability) {
+		if attachment.Description == "" && (attachment.Type == "image" || ((attachment.Type == "video" || attachment.Type == "gifv" || attachment.Type == "audio") && videoAudioProcessingCapability)) {
 			hasAltText = false
 		}
 	}
