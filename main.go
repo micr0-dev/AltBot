@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -29,7 +30,8 @@ import (
 )
 
 // Version of the bot
-const Version = "1.2.3"
+
+const Version = "1.3"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -69,6 +71,7 @@ type Config struct {
 	} `toml:"dni"`
 	ImageProcessing struct {
 		DownscaleWidth uint `toml:"downscale_width"`
+		MaxSizeMB      uint `toml:"max_size_mb"`
 	} `toml:"image_processing"`
 	Behavior struct {
 		ReplyVisibility string `toml:"reply_visibility"`
@@ -86,9 +89,12 @@ type Config struct {
 
 var config Config
 var model *genai.GenerativeModel
+var client *genai.Client
 var ctx context.Context
 
 var consentRequests = make(map[mastodon.ID]mastodon.ID)
+
+var videoAudioProcessingCapability = true
 
 func main() {
 	// Load configuration from TOML file
@@ -105,6 +111,8 @@ func main() {
 		if err != nil {
 			log.Fatalf("Error checking Ollama model: %v", err)
 		}
+
+		videoAudioProcessingCapability = false
 	}
 
 	err := loadLocalizations()
@@ -115,6 +123,9 @@ func main() {
 	// Print the version and art
 	fmt.Print(AsciiArt)
 	fmt.Printf("AltBot v%s (%s)\n", Version, config.LLM.Provider)
+	if videoAudioProcessingCapability {
+		fmt.Println("Video and Audio processing enabled!")
+	}
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
@@ -228,7 +239,8 @@ func fetchAndVerifyBotAccountID(c *mastodon.Client) (mastodon.ID, error) {
 func Setup(apiKey string) error {
 	ctx = context.Background()
 
-	client, err := genai.NewClient(ctx, option.WithAPIKey(apiKey))
+	var err error
+	client, err = genai.NewClient(ctx, option.WithAPIKey(apiKey))
 	if err != nil {
 		return err
 	}
@@ -325,7 +337,7 @@ func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *m
 	hasAltText := true
 
 	for _, attachment := range status.MediaAttachments {
-		if attachment.Type == "image" && attachment.Description == "" {
+		if attachment.Description == "" && attachment.Type == "image" || ((attachment.Type == "video" || attachment.Type == "gifv" || attachment.Type == "audio") && videoAudioProcessingCapability) {
 			hasAltText = false
 		}
 	}
@@ -411,7 +423,7 @@ func handleUpdate(c *mastodon.Client, status *mastodon.Status) {
 	}
 
 	for _, attachment := range status.MediaAttachments {
-		if attachment.Type == "image" {
+		if attachment.Type == "image" || ((attachment.Type == "video" || attachment.Type == "gifv" || attachment.Type == "audio") && videoAudioProcessingCapability) {
 			if attachment.Description == "" {
 				generateAndPostAltText(c, status, status.ID)
 				break
@@ -437,7 +449,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	for _, attachment := range status.MediaAttachments {
 		if attachment.Type == "image" {
 			if attachment.Description == "" {
-				altText, err := generateAltText(attachment.URL, replyPost.Language)
+				altText, err := generateImageAltText(attachment.URL, replyPost.Language)
 				if err != nil {
 					log.Printf("Error generating alt-text: %v", err)
 					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
@@ -451,8 +463,40 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
 				altTextAlreadyExists = true
 			}
-		} else {
-			responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "notAnImage", "response")))
+		} else if (attachment.Type == "video" || attachment.Type == "gifv") && videoAudioProcessingCapability {
+			if attachment.Description == "" {
+				altText, err := generateVideoAltText(attachment.URL, replyPost.Language)
+				if err != nil {
+					log.Printf("Error generating alt-text: %v", err)
+					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+				} else if altText == "" {
+					log.Printf("Error generating alt-text: Empty response")
+					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+				}
+				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText))
+				altTextGenerated = true
+			} else if !altTextGenerated && !altTextAlreadyExists {
+				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
+				altTextAlreadyExists = true
+			}
+		} else if (attachment.Type == "audio") && videoAudioProcessingCapability {
+			if attachment.Description == "" {
+				altText, err := generateAudioAltText(attachment.URL, replyPost.Language)
+				if err != nil {
+					log.Printf("Error generating alt-text: %v", err)
+					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+				} else if altText == "" {
+					log.Printf("Error generating alt-text: Empty response")
+					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+				}
+				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText))
+				altTextGenerated = true
+			} else if !altTextGenerated && !altTextAlreadyExists {
+				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
+				altTextAlreadyExists = true
+			}
+		} else if videoAudioProcessingCapability {
+			responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "unsupportedFile", "response")))
 		}
 	}
 
@@ -502,6 +546,10 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			visibility = "direct"
 		}
 
+		if response == "" {
+			continue
+		}
+
 		reply, err := c.PostStatus(ctx, &mastodon.Toot{
 			Status:      response,
 			InReplyToID: replyToID,
@@ -522,13 +570,61 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	}
 }
 
-// generateAltText generates alt-text for an image using Gemini AI or Ollama
-func generateAltText(imageURL string, lang string) (string, error) {
+// downloadToTempFile downloads a file from a given URL and saves it to a temporary file.
+// It returns the path to the temporary file.
+func downloadToTempFile(fileURL, prefix, extension string) (string, error) {
+	// Download the file from the remote URL
+	resp, err := http.Get(fileURL)
+	if err != nil {
+		return "", err
+	}
+	defer resp.Body.Close()
+
+	// Check the Content-Length header
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength != "" {
+		size, err := strconv.ParseInt(contentLength, 10, 64)
+		if err == nil && size > int64(config.ImageProcessing.MaxSizeMB*1024*1024) {
+			return "", fmt.Errorf("file size exceeds maximum limit of %d MB", config.ImageProcessing.MaxSizeMB)
+		}
+	}
+
+	// Read the file content
+	fileData, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", err
+	}
+
+	// Create a temporary file to save the content
+	tmpFile, err := os.CreateTemp("", prefix+"-*."+extension)
+	if err != nil {
+		return "", err
+	}
+	defer tmpFile.Close()
+
+	// Write the file data to the temporary file
+	if _, err := tmpFile.Write(fileData); err != nil {
+		return "", err
+	}
+
+	return tmpFile.Name(), nil
+}
+
+// generateImageAltText generates alt-text for an image using Gemini AI or Ollama
+func generateImageAltText(imageURL string, lang string) (string, error) {
 	resp, err := http.Get(imageURL)
 	if err != nil {
 		return "", err
 	}
 	defer resp.Body.Close()
+
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength != "" {
+		size, err := strconv.ParseInt(contentLength, 10, 64)
+		if err == nil && size > int64(config.ImageProcessing.MaxSizeMB*1024*1024) {
+			return "", fmt.Errorf("file size exceeds maximum limit of %d MB", config.ImageProcessing.MaxSizeMB)
+		}
+	}
 
 	img, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -549,16 +645,54 @@ func generateAltText(imageURL string, lang string) (string, error) {
 
 	switch config.LLM.Provider {
 	case "gemini":
-		return GenerateAltWithGemini(prompt, downscaledImg, format)
+		return GenerateImageAltWithGemini(prompt, downscaledImg, format)
 	case "ollama":
-		return GenerateAltWithOllama(prompt, downscaledImg, format)
+		return GenerateImageAltWithOllama(prompt, downscaledImg, format)
 	default:
 		return "", fmt.Errorf("unsupported LLM provider: %s", config.LLM.Provider)
 	}
 }
 
+// generateVideoAltText generates alt-text for a video using Gemini AI
+func generateVideoAltText(videoURL string, lang string) (string, error) {
+	prompt := getLocalizedString(lang, "generateVideoAltText", "prompt")
+
+	fmt.Println("Processing video: " + videoURL)
+
+	// Use the helper function to download the video
+	videoFilePath, err := downloadToTempFile(videoURL, "video", "mp4")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(videoFilePath) // Clean up the file afterwards
+
+	LogEvent("video_alt_text_generated")
+
+	// Pass the local temporary file path to GenerateVideoAltWithGemini
+	return GenerateVideoAltWithGemini(prompt, videoFilePath)
+}
+
+// generateAudioAltText generates alt-text for an audio file using Gemini AI
+func generateAudioAltText(audioURL string, lang string) (string, error) {
+	prompt := getLocalizedString(lang, "generateAudioAltText", "prompt")
+
+	fmt.Println("Processing audio: " + audioURL)
+
+	// Use the helper function to download the audio
+	audioFilePath, err := downloadToTempFile(audioURL, "audio", "mp3")
+	if err != nil {
+		return "", err
+	}
+	defer os.Remove(audioFilePath) // Clean up the file afterwards
+
+	LogEvent("audio_alt_text_generated")
+
+	// Pass the local temporary file path to GenerateAudioAltWithGemini
+	return GenerateAudioAltWithGemini(prompt, audioFilePath)
+}
+
 // Generate creates a response using the Gemini AI model
-func GenerateAltWithGemini(strPrompt string, image []byte, fileExtension string) (string, error) {
+func GenerateImageAltWithGemini(strPrompt string, image []byte, fileExtension string) (string, error) {
 	var parts []genai.Part
 
 	parts = append(parts, genai.Text(strPrompt))
@@ -570,11 +704,93 @@ func GenerateAltWithGemini(strPrompt string, image []byte, fileExtension string)
 	if err != nil {
 		return "", err
 	}
-	return getResponse(resp), nil
+	return postProcessAltText(getResponse(resp)), nil
 }
 
-// GenerateAltWithOllama generates alt-text using the Ollama model
-func GenerateAltWithOllama(strPrompt string, image []byte, fileExtension string) (string, error) {
+// GenerateVideoAltWithGemini generates alt-text for a video using the Gemini AI model
+func GenerateVideoAltWithGemini(strPrompt string, videoFilePath string) (string, error) {
+	// Open the temporary video file
+	videoFile, err := os.Open(videoFilePath)
+	if err != nil {
+		return "", err
+	}
+	defer videoFile.Close()
+
+	// Upload the video using the File API
+	opts := genai.UploadFileOptions{DisplayName: "Video for Alt-Text"}
+	response, err := client.UploadFile(ctx, "", videoFile, &opts)
+	if err != nil {
+		return "", err
+	}
+
+	// Poll until the file is in the ACTIVE state
+	for response.State == genai.FileStateProcessing {
+		time.Sleep(1 * time.Second)
+		response, err = client.GetFile(ctx, response.Name)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Create a prompt using the text and the URI reference for the uploaded file
+	prompt := []genai.Part{
+		genai.FileData{URI: response.URI},
+		genai.Text(strPrompt),
+	}
+
+	// Generate content using the prompt
+	resp, err := model.GenerateContent(ctx, prompt...)
+	if err != nil {
+		return "", err
+	}
+
+	// Handle the response of generated text
+	return postProcessAltText(getResponse(resp)), nil
+}
+
+// GenerateAudioAltWithGemini generates alt-text for an audio file using the Gemini AI model
+func GenerateAudioAltWithGemini(strPrompt string, audioFilePath string) (string, error) {
+	// Open the temporary audio file
+	audioFile, err := os.Open(audioFilePath)
+	if err != nil {
+		return "", err
+	}
+	defer audioFile.Close()
+
+	// Upload the audio using the File API
+	opts := genai.UploadFileOptions{DisplayName: "Audio for Alt-Text"}
+	response, err := client.UploadFile(ctx, "", audioFile, &opts)
+	if err != nil {
+		return "", err
+	}
+
+	// Poll until the file is in the ACTIVE state
+	for response.State == genai.FileStateProcessing {
+		time.Sleep(10 * time.Second)
+		response, err = client.GetFile(ctx, response.Name)
+		if err != nil {
+			return "", err
+		}
+	}
+
+	// Create a prompt using the text and the URI reference for the uploaded file
+	prompt := []genai.Part{
+		genai.FileData{URI: response.URI},
+		genai.Text(strPrompt),
+	}
+
+	// Generate content using the prompt
+	resp, err := model.GenerateContent(ctx, prompt...)
+	if err != nil {
+		return "", err
+	}
+
+	// Handle the response of generated text
+	return postProcessAltText(getResponse(resp)), nil
+}
+
+// GenerateImageAltWithOllama generates alt-text using the Ollama model
+func GenerateImageAltWithOllama(strPrompt string, image []byte, fileExtension string) (string, error) {
 	// Save the image temporarily
 	tmpFile, err := os.CreateTemp("", "image.*."+fileExtension)
 	if err != nil {
@@ -697,6 +913,15 @@ func getResponse(resp *genai.GenerateContentResponse) string {
 		}
 	}
 	return response
+}
+
+func postProcessAltText(altText string) string {
+	// Remove any trailing whitespace
+	altText = strings.TrimSpace(altText)
+
+	// TODO: Add watermark to the alt text at the end. https://github.com/micr0-dev/AltBot/issues/8
+
+	return altText
 }
 
 // checkOllamaModel checks if the Ollama model is available and working
