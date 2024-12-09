@@ -121,6 +121,9 @@ func main() {
 	// Print the version and art
 	fmt.Print(AsciiArt)
 	fmt.Printf("AltBot v%s (%s)\n", Version, config.LLM.Provider)
+	if videoAudioProcessingCapability {
+		fmt.Println("Video and Audio processing enabled!")
+	}
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
