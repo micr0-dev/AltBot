@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -70,6 +71,7 @@ type Config struct {
 	} `toml:"dni"`
 	ImageProcessing struct {
 		DownscaleWidth uint `toml:"downscale_width"`
+		MaxSizeMB      uint `toml:"max_size_mb"`
 	} `toml:"image_processing"`
 	Behavior struct {
 		ReplyVisibility string `toml:"reply_visibility"`
@@ -578,6 +580,15 @@ func downloadToTempFile(fileURL, prefix, extension string) (string, error) {
 	}
 	defer resp.Body.Close()
 
+	// Check the Content-Length header
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength != "" {
+		size, err := strconv.ParseInt(contentLength, 10, 64)
+		if err == nil && size > int64(config.ImageProcessing.MaxSizeMB*1024*1024) {
+			return "", fmt.Errorf("file size exceeds maximum limit of %d MB", config.ImageProcessing.MaxSizeMB)
+		}
+	}
+
 	// Read the file content
 	fileData, err := io.ReadAll(resp.Body)
 	if err != nil {
@@ -606,6 +617,14 @@ func generateImageAltText(imageURL string, lang string) (string, error) {
 		return "", err
 	}
 	defer resp.Body.Close()
+
+	contentLength := resp.Header.Get("Content-Length")
+	if contentLength != "" {
+		size, err := strconv.ParseInt(contentLength, 10, 64)
+		if err == nil && size > int64(config.ImageProcessing.MaxSizeMB*1024*1024) {
+			return "", fmt.Errorf("file size exceeds maximum limit of %d MB", config.ImageProcessing.MaxSizeMB)
+		}
+	}
 
 	img, err := io.ReadAll(resp.Body)
 	if err != nil {
