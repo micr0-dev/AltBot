@@ -33,7 +33,8 @@ ignore_bots = true
 [image_processing]
 # Greater values may break the image processing due to haivng a size greater than the maximum allowed by the API
 downscale_width = 800
-max_size_mb = 100     # Maximum file size in MB for to be processed (Video, Images, Audio, etc)
+max_size_mb = 100                    # Maximum file size in MB for to be processed (Video, Images, Audio, etc)
+max_requests_per_user_per_minute = 4 # Maximum number of requests per user per minute
 
 [behavior]
 # Maximum visibility of the replies to the bot, can be "public", "unlisted", "private" or "direct"
