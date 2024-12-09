@@ -13,6 +13,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"regexp"
 	"strconv"
 	"strings"
 	"sync"
@@ -22,6 +23,8 @@ import (
 	"golang.org/x/image/bmp"
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
+	"golang.org/x/text/cases"
+	"golang.org/x/text/language"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/mattn/go-mastodon"
@@ -442,63 +445,59 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		return
 	}
 
+	var wg sync.WaitGroup
+	var mu sync.Mutex
 	var responses []string
 	altTextGenerated := false
 	altTextAlreadyExists := false
 
 	for _, attachment := range status.MediaAttachments {
-		if attachment.Type == "image" {
-			if attachment.Description == "" {
-				altText, err := generateImageAltText(attachment.URL, replyPost.Language)
-				if err != nil {
-					log.Printf("Error generating alt-text: %v", err)
-					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
-				} else if altText == "" {
-					log.Printf("Error generating alt-text: Empty response")
-					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+		wg.Add(1)
+		go func(attachment mastodon.Attachment) {
+			defer wg.Done()
+			var altText string
+			var err error
+
+			if attachment.Type == "image" && attachment.Description == "" {
+				altText, err = generateImageAltText(attachment.URL, replyPost.Language)
+			} else if (attachment.Type == "video" || attachment.Type == "gifv") && videoAudioProcessingCapability && attachment.Description == "" {
+				altText, err = generateVideoAltText(attachment.URL, replyPost.Language)
+			} else if attachment.Type == "audio" && videoAudioProcessingCapability && attachment.Description == "" {
+				altText, err = generateAudioAltText(attachment.URL, replyPost.Language)
+			} else if attachment.Description != "" {
+				if !altTextGenerated && !altTextAlreadyExists {
+					mu.Lock()
+					responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
+					mu.Unlock()
+					altTextAlreadyExists = true
 				}
-				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText))
-				altTextGenerated = true
-			} else if !altTextGenerated && !altTextAlreadyExists {
-				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
-				altTextAlreadyExists = true
+				return
+			} else if videoAudioProcessingCapability {
+				mu.Lock()
+				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "unsupportedFile", "response")))
+				mu.Unlock()
+				return
 			}
-		} else if (attachment.Type == "video" || attachment.Type == "gifv") && videoAudioProcessingCapability {
-			if attachment.Description == "" {
-				altText, err := generateVideoAltText(attachment.URL, replyPost.Language)
-				if err != nil {
-					log.Printf("Error generating alt-text: %v", err)
-					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
-				} else if altText == "" {
-					log.Printf("Error generating alt-text: Empty response")
-					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
-				}
-				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText))
-				altTextGenerated = true
-			} else if !altTextGenerated && !altTextAlreadyExists {
-				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
-				altTextAlreadyExists = true
+
+			if err != nil {
+				log.Printf("Error generating alt-text: %v", err)
+				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
+			} else if altText == "" {
+				log.Printf("Error generating alt-text: Empty response")
+				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
 			}
-		} else if (attachment.Type == "audio") && videoAudioProcessingCapability {
-			if attachment.Description == "" {
-				altText, err := generateAudioAltText(attachment.URL, replyPost.Language)
-				if err != nil {
-					log.Printf("Error generating alt-text: %v", err)
-					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
-				} else if altText == "" {
-					log.Printf("Error generating alt-text: Empty response")
-					altText = getLocalizedString(replyPost.Language, "altTextError", "response")
-				}
-				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, altText))
-				altTextGenerated = true
-			} else if !altTextGenerated && !altTextAlreadyExists {
-				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
-				altTextAlreadyExists = true
-			}
-		} else if videoAudioProcessingCapability {
-			responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "unsupportedFile", "response")))
-		}
+
+			mu.Lock()
+			responses = append(responses, altText)
+			mu.Unlock()
+			altTextGenerated = true
+		}(attachment)
 	}
+
+	wg.Wait()
+
+	// Combine all responses with a separator
+	combinedResponse := strings.Join(responses, "\n―\n")
 
 	// Prepare the content warning for the reply
 	contentWarning := status.SpoilerText
@@ -506,8 +505,14 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		contentWarning = "re: " + contentWarning
 	}
 
-	// Post all accumulated responses
-	for _, response := range responses {
+	// Add mention to the original poster at the start
+	combinedResponse = fmt.Sprintf("@%s %s", replyPost.Account.Acct, combinedResponse)
+
+	providerMessage := getLocalizedString(replyPost.Language, "providedByMessage", "response")
+	combinedResponse = fmt.Sprintf("%s\n\n%s", combinedResponse, fmt.Sprintf(providerMessage, config.Server.Username, cases.Title(language.AmericanEnglish).String(config.LLM.Provider)))
+
+	// Post the combined response
+	if combinedResponse != "" {
 		visibility := replyPost.Visibility
 
 		// Map the visibility of the reply based on the original post and the bot's settings
@@ -546,12 +551,8 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			visibility = "direct"
 		}
 
-		if response == "" {
-			continue
-		}
-
 		reply, err := c.PostStatus(ctx, &mastodon.Toot{
-			Status:      response,
+			Status:      combinedResponse,
 			InReplyToID: replyToID,
 			Visibility:  visibility,
 			Language:    replyPost.Language,
@@ -566,7 +567,6 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		mapMutex.Lock()
 		replyMap[status.ID] = ReplyInfo{ReplyID: reply.ID, Timestamp: time.Now()}
 		mapMutex.Unlock()
-
 	}
 }
 
@@ -915,11 +915,20 @@ func getResponse(resp *genai.GenerateContentResponse) string {
 	return response
 }
 
+// postProcessAltText cleans up the alt-text by removing unwanted introductory phrases.
 func postProcessAltText(altText string) string {
-	// Remove any trailing whitespace
-	altText = strings.TrimSpace(altText)
+	// Define a regex pattern to match introductory phrases
+	// This pattern matches phrases like "Here's alt text describing the image:" or "Here's alt text for the image:"
+	pattern := `(?i)here's alt text (describing|for) the (image|video|audio):?\s*`
 
-	// TODO: Add watermark to the alt text at the end. https://github.com/micr0-dev/AltBot/issues/8
+	// Compile the regex
+	re := regexp.MustCompile(pattern)
+
+	// Use the regex to replace matches with an empty string
+	altText = re.ReplaceAllString(altText, "")
+
+	// Remove any leading or trailing whitespace
+	altText = strings.TrimSpace(altText)
 
 	return altText
 }
