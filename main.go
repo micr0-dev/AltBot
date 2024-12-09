@@ -73,8 +73,9 @@ type Config struct {
 		IgnoreBots bool     `toml:"ignore_bots"`
 	} `toml:"dni"`
 	ImageProcessing struct {
-		DownscaleWidth uint `toml:"downscale_width"`
-		MaxSizeMB      uint `toml:"max_size_mb"`
+		DownscaleWidth              uint `toml:"downscale_width"`
+		MaxSizeMB                   uint `toml:"max_size_mb"`
+		MaxRequestsPerUserPerMinute int  `toml:"max_requests_per_user_per_minute"`
 	} `toml:"image_processing"`
 	Behavior struct {
 		ReplyVisibility string `toml:"reply_visibility"`
@@ -98,6 +99,8 @@ var ctx context.Context
 var consentRequests = make(map[mastodon.ID]mastodon.ID)
 
 var videoAudioProcessingCapability = true
+
+var rateLimiter *RateLimiter
 
 func main() {
 	// Load configuration from TOML file
@@ -163,6 +166,17 @@ func main() {
 	if config.WeeklySummary.Enabled {
 		go startWeeklySummaryScheduler(c)
 	}
+
+	// Initialize the rate limiter
+	rateLimiter = NewRateLimiter()
+
+	// Start a goroutine for periodic rate limiter reset
+	go func() {
+		for {
+			time.Sleep(1 * time.Minute)
+			rateLimiter.Reset()
+		}
+	}()
 
 	// Start a goroutine for periodic cleanup of old reply entries
 	go cleanupOldEntries()
@@ -458,6 +472,15 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			var altText string
 			var err error
 
+			// Check if the user has exceeded their rate limit
+			if !rateLimiter.Increment(string(replyPost.Account.ID)) {
+				log.Printf("User @%s has exceeded their rate limit", replyPost.Account.Acct)
+				mu.Lock()
+				responses = append(responses, getLocalizedString(replyPost.Language, "altTextError", "response"))
+				mu.Unlock()
+				return
+			}
+
 			if attachment.Type == "image" && attachment.Description == "" {
 				altText, err = generateImageAltText(attachment.URL, replyPost.Language)
 			} else if (attachment.Type == "video" || attachment.Type == "gifv") && videoAudioProcessingCapability && attachment.Description == "" {
@@ -467,14 +490,14 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			} else if attachment.Description != "" {
 				if !altTextGenerated && !altTextAlreadyExists {
 					mu.Lock()
-					responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response")))
+					responses = append(responses, getLocalizedString(replyPost.Language, "imageAlreadyHasAltText", "response"))
 					mu.Unlock()
 					altTextAlreadyExists = true
 				}
 				return
 			} else if videoAudioProcessingCapability {
 				mu.Lock()
-				responses = append(responses, fmt.Sprintf("@%s %s", replyPost.Account.Acct, getLocalizedString(replyPost.Language, "unsupportedFile", "response")))
+				responses = append(responses, getLocalizedString(replyPost.Language, "unsupportedFile", "response"))
 				mu.Unlock()
 				return
 			}
@@ -988,5 +1011,41 @@ func cleanupOldEntries() {
 			}
 		}
 		mapMutex.Unlock()
+	}
+}
+
+// RateLimiter struct to hold user request counts
+type RateLimiter struct {
+	mu        sync.Mutex
+	userCount map[string]int
+}
+
+// NewRateLimiter creates a new RateLimiter
+func NewRateLimiter() *RateLimiter {
+	return &RateLimiter{
+		userCount: make(map[string]int),
+	}
+}
+
+// Increment increments the request count for a user
+func (rl *RateLimiter) Increment(userID string) bool {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	if rl.userCount[userID] >= config.ImageProcessing.MaxRequestsPerUserPerMinute {
+		return false
+	}
+
+	rl.userCount[userID]++
+	return true
+}
+
+// Reset resets the request counts for all users
+func (rl *RateLimiter) Reset() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	for userID := range rl.userCount {
+		rl.userCount[userID] = 0
 	}
 }
