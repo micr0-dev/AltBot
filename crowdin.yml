@@ -1,1 +1,4 @@
-files: []
+files:
+  - source: localizations.json
+    translation: localizations_trans.json
+    multilingual: 1
