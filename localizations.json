@@ -7,7 +7,7 @@
         },
         "responses": {
             "altTextError": "Sorry, I couldn't process this image.",
-            "consentRequest": "This bot has been asked to generate an alt text for your image by @%s. If you consent, your media will be uploaded to Google Gemini and might be used for training purposes. Read more: https://support.google.com/gemini/answer/13594961 \nDo you consent? Reply with 'Y' or 'Yes' to proceed.",
+            "consentRequest": "This bot has been asked to generate an alt text for your image by @%s. If you consent, your media will be uploaded to Google Gemini and might be used for training purposes. More information in my bio. \nDo you consent? Reply with 'Y' or 'Yes' to proceed.",
             "imageAlreadyHasAltText": "This image already has alt-text",
             "unsupportedFile": "This file is unsupported, only images, videos, and audio files are currently supported",
             "providedByMessage": "Provided by @%s, generated using %s"
@@ -77,7 +77,7 @@
         },
         "responses": {
             "altTextError": "Entschuldigung, ich konnte dieses Bild nicht verarbeiten.",
-            "consentRequest": "Dieser Bot wurde durch @%s gebeten, einen Alt-Text für Ihr Bild zu erstellen. Wenn Sie zustimmen, wird Ihr Bild bei Google Gemini hochgeladen und möglicherweise als Trainingsdaten genutzt. Mehr Informationen: https://support.google.com/gemini/answer/13594961 \nStimmen Sie zu? Antworten Sie mit 'Y' oder 'Yes', um fortzufahren.",
+            "consentRequest": "Dieser Bot wurde durch @%s gebeten, einen Alt-Text für Ihr Bild zu erstellen. Wenn Sie zustimmen, wird Ihr Bild bei Google Gemini hochgeladen und möglicherweise als Trainingsdaten genutzt. Mehr Informationen in meiner Bio. \nStimmen Sie zu? Antworten Sie mit 'Y' oder 'Yes', um fortzufahren.",
             "imageAlreadyHasAltText": "Dieses Bild hat bereits einen Alt-Text",
             "unsupportedFile": "Diese Datei wird nicht unterstützt, derzeit werden nur Bilder, Videos und Audiodateien unterstützt",
             "providedByMessage": "Bereitgestellt von @%s, generiert mit %s"
