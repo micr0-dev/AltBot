@@ -89,6 +89,9 @@ type Config struct {
 		MessageTemplate string   `toml:"message_template"`
 		Tips            []string `toml:"tips"`
 	} `toml:"weekly_summary"`
+	Metrics struct {
+		Enabled bool `toml:"enabled"`
+	} `toml:"metrics"`
 }
 
 var config Config
@@ -184,7 +187,7 @@ func main() {
 	go cleanupOldEntries()
 
 	// Start metrics manager
-	metricsManager = NewMetricsManager("metrics.json", 10*time.Second)
+	metricsManager = NewMetricsManager(config.Metrics.Enabled, "metrics.json", 10*time.Second)
 	defer metricsManager.stop()
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")

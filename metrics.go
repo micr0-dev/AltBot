@@ -18,6 +18,7 @@ type MetricEvent struct {
 
 // MetricsManager handles the metrics collection and reporting with detailed logs
 type MetricsManager struct {
+	enabled   bool
 	fileMutex sync.Mutex
 	logs      []MetricEvent
 	filePath  string
@@ -27,16 +28,20 @@ type MetricsManager struct {
 }
 
 // NewMetricsManager initializes a new metrics manager
-func NewMetricsManager(filePath string, interval time.Duration) *MetricsManager {
+func NewMetricsManager(enabled bool, filePath string, interval time.Duration) *MetricsManager {
 	mm := &MetricsManager{
+		enabled:  enabled,
 		logs:     []MetricEvent{},
 		filePath: filePath,
 		ticker:   time.NewTicker(interval),
 		stopChan: make(chan struct{}),
 	}
 
-	mm.wg.Add(1)
-	go mm.run()
+	if mm.enabled {
+		mm.wg.Add(1)
+		go mm.run()
+	}
+
 	return mm
 }
 
@@ -56,6 +61,10 @@ func (mm *MetricsManager) run() {
 
 // logEvent logs an event with its details
 func (mm *MetricsManager) logEvent(userID, eventType string, details map[string]interface{}) {
+	if !mm.enabled {
+		return
+	}
+
 	event := MetricEvent{
 		Timestamp: time.Now(),
 		UserID:    userID,
