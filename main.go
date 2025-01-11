@@ -36,13 +36,13 @@ import (
 
 // Version of the bot
 
-const Version = "1.3.1"
+const Version = "1.4"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
    /_\ | | |_| _ )___| |_ 
   / _ \| |  _| _ / _ |  _|
- /_/ \_|_|\__|___\___/\__|
+ /_/ \_|_|\__|___\___/\__| アクセシビリティロボット
 `
 
 type Config struct {
