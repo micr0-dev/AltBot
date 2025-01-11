@@ -27,5 +27,6 @@ go.work.sum
 # config file
 config.toml
 
-# log files
+# generated files
+metrics.json
 altbot_log.json

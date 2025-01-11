@@ -102,6 +102,8 @@ var videoAudioProcessingCapability = true
 
 var rateLimiter *RateLimiter
 
+var metricsManager *MetricsManager
+
 func main() {
 	// Load configuration from TOML file
 	if _, err := toml.DecodeFile("config.toml", &config); err != nil {
@@ -180,6 +182,10 @@ func main() {
 
 	// Start a goroutine for periodic cleanup of old reply entries
 	go cleanupOldEntries()
+
+	// Start metrics manager
+	metricsManager = NewMetricsManager("metrics.json", 10*time.Second)
+	defer metricsManager.stop()
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
 
@@ -391,11 +397,15 @@ func handleConsentResponse(c *mastodon.Client, ID mastodon.ID, consentStatus *ma
 		return
 	}
 
+	// TODO: Add an extra check for the OP vs the person who replied to the consent request
+
 	content := strings.TrimSpace(strings.ToLower(consentStatus.Content))
 	if strings.Contains(content, "y") || strings.Contains(content, "yes") {
 		generateAndPostAltText(c, status, consentStatus.ID)
+		metricsManager.logConsentRequest(string(status.Account.ID), true)
 	} else {
 		log.Printf("Consent denied by the original poster: %s", consentStatus.Account.Acct)
+		metricsManager.logConsentRequest(string(status.Account.ID), false)
 	}
 	delete(consentRequests, originalStatusID)
 
@@ -459,6 +469,8 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		return
 	}
 
+	metricsManager.logRequest(string(replyPost.Account.ID))
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var responses []string
@@ -472,9 +484,12 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			var altText string
 			var err error
 
+			start := time.Now()
+
 			// Check if the user has exceeded their rate limit
 			if !rateLimiter.Increment(string(replyPost.Account.ID)) {
 				log.Printf("User @%s has exceeded their rate limit", replyPost.Account.Acct)
+				metricsManager.logRateLimitHit(string(replyPost.Account.ID))
 				mu.Lock()
 				responses = append(responses, getLocalizedString(replyPost.Language, "altTextError", "response"))
 				mu.Unlock()
@@ -510,10 +525,14 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
 			}
 
+			elapsed := time.Since(start).Milliseconds()
+
 			mu.Lock()
 			responses = append(responses, altText)
 			mu.Unlock()
 			altTextGenerated = true
+
+			metricsManager.logSuccessfulGeneration(string(replyPost.Account.ID), attachment.Type, elapsed)
 		}(attachment)
 	}
 
