@@ -30,3 +30,4 @@ config.toml
 # generated files
 metrics.json
 altbot_log.json
+consent_requests.json

@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/gif"
@@ -23,6 +24,7 @@ import (
 	"golang.org/x/image/bmp"
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
+	"golang.org/x/net/html"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
@@ -102,7 +104,7 @@ var model *genai.GenerativeModel
 var client *genai.Client
 var ctx context.Context
 
-var consentRequests = make(map[mastodon.ID]mastodon.ID)
+var consentRequests = make(map[mastodon.ID]ConsentRequest)
 
 var videoAudioProcessingCapability = true
 
@@ -196,6 +198,17 @@ func main() {
 
 	// Start a goroutine for periodic cleanup of old reply entries
 	go cleanupOldEntries()
+
+	if err := loadConsentRequestsFromFile("consent_requests.json"); err != nil {
+		log.Fatalf("Error loading consent requests: %v", err)
+	}
+
+	go func() {
+		for {
+			time.Sleep(1 * time.Hour)
+			cleanupOldConsentRequests()
+		}
+	}()
 
 	// Start metrics manager
 	metricsManager = NewMetricsManager(config.Metrics.Enabled, "metrics.json", 10*time.Second)
@@ -388,7 +401,10 @@ func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *m
 		return
 	}
 
-	consentRequests[status.ID] = notification.Status.ID
+	consentRequests[status.ID] = ConsentRequest{
+		RequestID: notification.Status.ID,
+		Timestamp: time.Now(),
+	}
 
 	message := fmt.Sprintf("@%s "+getLocalizedString(notification.Status.Language, "consentRequest", "response"), status.Account.Acct, notification.Account.Acct)
 	_, err := c.PostStatus(ctx, &mastodon.Toot{
@@ -400,6 +416,10 @@ func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *m
 	if err != nil {
 		log.Printf("Error posting consent request: %v", err)
 	}
+
+	if err := saveConsentRequestsToFile("consent_requests.json"); err != nil {
+		log.Printf("Error saving consent requests: %v", err)
+	}
 }
 
 // handleConsentResponse processes the consent response from the original poster
@@ -407,25 +427,48 @@ func handleConsentResponse(c *mastodon.Client, ID mastodon.ID, consentStatus *ma
 	originalStatusID := ID
 	status, err := c.GetStatus(ctx, originalStatusID)
 	if err != nil {
-		log.Printf("Error fetching original status: %v", err)
+		log.Printf("Error fetching original status for ID %s: %v", originalStatusID, err)
 		return
 	}
 
 	if consentStatus.Account.Acct != status.Account.Acct {
-		log.Printf("Consent response from unauthorized user: %s", consentStatus.Account.Acct)
+		log.Printf("Unauthorized consent response from: %s, expected: %s", consentStatus.Account.Acct, status.Account.Acct)
 		return
 	}
 
-	content := strings.TrimSpace(strings.ToLower(consentStatus.Content))
-	if strings.Contains(content, "y") || strings.Contains(content, "yes") {
+	// Clean up HTML content to extract plain text
+	plainTextContent := stripHTMLTags(consentStatus.Content)
+	log.Printf("Cleaned consent content: %q from user: %s", plainTextContent, consentStatus.Account.Acct)
+
+	if plainTextContent == "" {
+		log.Printf("No content in consent response from: %s", consentStatus.Account.Acct)
+		return
+	}
+
+	// Split content into words and check the last word
+	consentResponse := strings.Fields(plainTextContent)
+	if len(consentResponse) == 0 {
+		log.Printf("Empty content after stripping HTML.")
+		return
+	}
+	lastWord := strings.ToLower(consentResponse[len(consentResponse)-1])
+	log.Printf("Extracted last word: %q from cleaned content", lastWord)
+
+	if lastWord == "y" || lastWord == "yes" {
+		log.Printf("Consent granted by the original poster: %s", consentStatus.Account.Acct)
 		generateAndPostAltText(c, status, consentStatus.ID)
 		metricsManager.logConsentRequest(string(status.Account.ID), true)
 	} else {
-		log.Printf("Consent denied by the original poster: %s", consentStatus.Account.Acct)
+		log.Printf("Consent denied based on last word: %q from user: %s", lastWord, consentStatus.Account.Acct)
 		metricsManager.logConsentRequest(string(status.Account.ID), false)
 	}
-	delete(consentRequests, originalStatusID)
 
+	delete(consentRequests, originalStatusID)
+	log.Printf("Removed consent request for ID %s after processing", originalStatusID)
+
+	if err := saveConsentRequestsToFile("consent_requests.json"); err != nil {
+		log.Printf("Error saving consent requests: %v", err)
+	}
 }
 
 // isDNI checks if an account meets the Do Not Interact (DNI) conditions
@@ -1104,4 +1147,67 @@ func (rl *RateLimiter) ResetHourCounts() {
 	for userID := range rl.hourCounts {
 		rl.hourCounts[userID] = 0
 	}
+}
+
+// ConsentRequest struct to store consent requests
+type ConsentRequest struct {
+	RequestID mastodon.ID
+	Timestamp time.Time
+}
+
+func saveConsentRequestsToFile(filePath string) error {
+	data, err := json.Marshal(consentRequests)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+func loadConsentRequestsFromFile(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// File doesn't exist, so initialize an empty map
+			consentRequests = make(map[mastodon.ID]ConsentRequest)
+			return nil
+		}
+		return err
+	}
+
+	if err := json.Unmarshal(data, &consentRequests); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func cleanupOldConsentRequests() {
+	for id, request := range consentRequests {
+		if time.Since(request.Timestamp) > 30*24*time.Hour { // 30 days
+			delete(consentRequests, id)
+		}
+	}
+}
+
+// stripHTMLTags extracts and returns plain text from HTML content
+func stripHTMLTags(htmlContent string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		log.Printf("Error parsing HTML: %v", err)
+		return htmlContent // Return unchanged if parsing fails
+	}
+	return extractText(doc)
+}
+
+// extractText recursively extracts text from an HTML node
+func extractText(n *html.Node) string {
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	var text string
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		text += extractText(c)
+	}
+	return text
 }
