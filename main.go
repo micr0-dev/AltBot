@@ -92,8 +92,8 @@ type Config struct {
 		Enabled bool `toml:"enabled"`
 	} `toml:"metrics"`
 	RateLimit struct {
-		MaxRequestsPerMinute int `toml:"max_requests_per_minute"`
-		MaxRequestsPerHour   int `toml:"max_requests_per_hour"`
+		MaxRequestsPerMinute int `toml:"max_requests_per_user_per_minute"`
+		MaxRequestsPerHour   int `toml:"max_requests_per_user_per_hour"`
 	} `toml:"rate_limit"`
 }
 
@@ -176,7 +176,7 @@ func main() {
 	}
 
 	// Initialize the rate limiter
-	rateLimiter := NewRateLimiter()
+	rateLimiter = NewRateLimiter()
 
 	// Reset minute counts every minute
 	go func() {
@@ -411,7 +411,10 @@ func handleConsentResponse(c *mastodon.Client, ID mastodon.ID, consentStatus *ma
 		return
 	}
 
-	// TODO: Add an extra check for the OP vs the person who replied to the consent request
+	if consentStatus.Account.Acct != status.Account.Acct {
+		log.Printf("Consent response from unauthorized user: %s", consentStatus.Account.Acct)
+		return
+	}
 
 	content := strings.TrimSpace(strings.ToLower(consentStatus.Content))
 	if strings.Contains(content, "y") || strings.Contains(content, "yes") {

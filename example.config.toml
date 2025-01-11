@@ -47,7 +47,7 @@ ask_for_consent = true
 # Existing entries
 max_requests_per_user_per_minute = 4
 # New entry for hourly limit
-max_requests_per_user_per_hour = 100
+max_requests_per_user_per_hour = 20
 
 [metrics]
 enabled = true # Set to false to completely disable all metrics collection and logging
