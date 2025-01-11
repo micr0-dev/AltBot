@@ -73,9 +73,8 @@ type Config struct {
 		IgnoreBots bool     `toml:"ignore_bots"`
 	} `toml:"dni"`
 	ImageProcessing struct {
-		DownscaleWidth              uint `toml:"downscale_width"`
-		MaxSizeMB                   uint `toml:"max_size_mb"`
-		MaxRequestsPerUserPerMinute int  `toml:"max_requests_per_user_per_minute"`
+		DownscaleWidth uint `toml:"downscale_width"`
+		MaxSizeMB      uint `toml:"max_size_mb"`
 	} `toml:"image_processing"`
 	Behavior struct {
 		ReplyVisibility string `toml:"reply_visibility"`
@@ -92,6 +91,10 @@ type Config struct {
 	Metrics struct {
 		Enabled bool `toml:"enabled"`
 	} `toml:"metrics"`
+	RateLimit struct {
+		MaxRequestsPerMinute int `toml:"max_requests_per_minute"`
+		MaxRequestsPerHour   int `toml:"max_requests_per_hour"`
+	} `toml:"rate_limit"`
 }
 
 var config Config
@@ -173,13 +176,21 @@ func main() {
 	}
 
 	// Initialize the rate limiter
-	rateLimiter = NewRateLimiter()
+	rateLimiter := NewRateLimiter()
 
-	// Start a goroutine for periodic rate limiter reset
+	// Reset minute counts every minute
 	go func() {
 		for {
 			time.Sleep(1 * time.Minute)
-			rateLimiter.Reset()
+			rateLimiter.ResetMinuteCounts()
+		}
+	}()
+
+	// Reset hour counts every hour
+	go func() {
+		for {
+			time.Sleep(1 * time.Hour)
+			rateLimiter.ResetHourCounts()
 		}
 	}()
 
@@ -1039,36 +1050,55 @@ func cleanupOldEntries() {
 
 // RateLimiter struct to hold user request counts
 type RateLimiter struct {
-	mu        sync.Mutex
-	userCount map[string]int
+	mu           sync.Mutex
+	minuteCounts map[string]int
+	hourCounts   map[string]int
 }
 
 // NewRateLimiter creates a new RateLimiter
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
-		userCount: make(map[string]int),
+		minuteCounts: make(map[string]int),
+		hourCounts:   make(map[string]int),
 	}
 }
 
-// Increment increments the request count for a user
+// Increment increments the request count for a user and checks limits
 func (rl *RateLimiter) Increment(userID string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	if rl.userCount[userID] >= config.ImageProcessing.MaxRequestsPerUserPerMinute {
+	// Check per-minute limit
+	if rl.minuteCounts[userID] >= config.RateLimit.MaxRequestsPerMinute {
 		return false
 	}
 
-	rl.userCount[userID]++
+	// Check per-hour limit
+	if rl.hourCounts[userID] >= config.RateLimit.MaxRequestsPerHour {
+		return false
+	}
+
+	rl.minuteCounts[userID]++
+	rl.hourCounts[userID]++
 	return true
 }
 
-// Reset resets the request counts for all users
-func (rl *RateLimiter) Reset() {
+// ResetMinuteCounts resets the per-minute request counts for all users
+func (rl *RateLimiter) ResetMinuteCounts() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	for userID := range rl.userCount {
-		rl.userCount[userID] = 0
+	for userID := range rl.minuteCounts {
+		rl.minuteCounts[userID] = 0
+	}
+}
+
+// ResetHourCounts resets the per-hour request counts for all users
+func (rl *RateLimiter) ResetHourCounts() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	for userID := range rl.hourCounts {
+		rl.hourCounts[userID] = 0
 	}
 }

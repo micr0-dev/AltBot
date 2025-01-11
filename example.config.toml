@@ -34,7 +34,6 @@ ignore_bots = true
 # Greater values may break the image processing due to haivng a size greater than the maximum allowed by the API
 downscale_width = 800
 max_size_mb = 100                    # Maximum file size in MB for to be processed (Video, Images, Audio, etc)
-max_requests_per_user_per_minute = 4 # Maximum number of requests per user per minute
 
 [behavior]
 # Maximum visibility of the replies to the bot, can be "public", "unlisted", "private" or "direct"
@@ -43,6 +42,15 @@ reply_visibility = "unlisted"
 follow_back = true
 # Ask for consent when mentioned by none OP users
 ask_for_consent = true
+
+[rate_limit]
+# Existing entries
+max_requests_per_user_per_minute = 4
+# New entry for hourly limit
+max_requests_per_user_per_hour = 100
+
+[metrics]
+enabled = true # Set to false to completely disable all metrics collection and logging
 
 [weekly_summary]
 enabled = true # Enable or disable the weekly summary feature (disabling will prevent all built-in Logging as well)
