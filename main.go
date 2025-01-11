@@ -94,11 +94,13 @@ type Config struct {
 		Enabled bool `toml:"enabled"`
 	} `toml:"metrics"`
 	RateLimit struct {
-		MaxRequestsPerMinute           int `toml:"max_requests_per_user_per_minute"`
-		MaxRequestsPerHour             int `toml:"max_requests_per_user_per_hour"`
-		NewAccountMaxRequestsPerMinute int `toml:"new_account_max_requests_per_minute"`
-		NewAccountMaxRequestsPerHour   int `toml:"new_account_max_requests_per_hour"`
-		NewAccountPeriodDays           int `toml:"new_account_period_days"`
+		MaxRequestsPerMinute           int    `toml:"max_requests_per_user_per_minute"`
+		MaxRequestsPerHour             int    `toml:"max_requests_per_user_per_hour"`
+		NewAccountMaxRequestsPerMinute int    `toml:"new_account_max_requests_per_minute"`
+		NewAccountMaxRequestsPerHour   int    `toml:"new_account_max_requests_per_hour"`
+		NewAccountPeriodDays           int    `toml:"new_account_period_days"`
+		ShadowBanThreshold             int    `toml:"shadow_ban_threshold"`
+		AdminContactHandle             string `toml:"admin_contact_handle"`
 	} `toml:"rate_limit"`
 }
 
@@ -187,16 +189,6 @@ func main() {
 	if err := rateLimiter.LoadFromFile("ratelimiter.json"); err != nil {
 		log.Fatalf("Error loading rate limiter state: %v", err)
 	}
-
-	// Set up periodic saving of the rate limiter state
-	go func() {
-		for {
-			time.Sleep(5 * time.Minute)
-			if err := rateLimiter.SaveToFile("ratelimiter.json"); err != nil {
-				log.Printf("Error saving rate limiter state: %v", err)
-			}
-		}
-	}()
 
 	// Reset minute counts every minute
 	go func() {
@@ -1113,18 +1105,22 @@ func cleanupOldEntries() {
 }
 
 type RateLimiter struct {
-	MinuteCounts map[string]int       `json:"minute_counts"`
-	HourCounts   map[string]int       `json:"hour_counts"`
-	AccountAges  map[string]time.Time `json:"account_ages"`
-	mu           sync.Mutex
+	MinuteCounts   map[string]int       `json:"minute_counts"`
+	HourCounts     map[string]int       `json:"hour_counts"`
+	AccountAges    map[string]time.Time `json:"account_ages"`
+	mu             sync.Mutex
+	ExceededCounts map[string]int  `json:"exceeded_counts"`
+	ShadowBanned   map[string]bool `json:"shadow_banned"`
 }
 
 // NewRateLimiter creates a new RateLimiter
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
-		MinuteCounts: make(map[string]int),
-		HourCounts:   make(map[string]int),
-		AccountAges:  make(map[string]time.Time),
+		MinuteCounts:   make(map[string]int),
+		HourCounts:     make(map[string]int),
+		AccountAges:    make(map[string]time.Time),
+		ExceededCounts: make(map[string]int),
+		ShadowBanned:   make(map[string]bool),
 	}
 }
 
@@ -1151,6 +1147,18 @@ func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
+	isBanned := rl.IsShadowBanned(userID)
+	log.Printf("User %s is shadow banned: %v", userID, isBanned)
+	if isBanned {
+		return false
+	}
+
+	defer func() {
+		if err := rateLimiter.SaveToFile("ratelimiter.json"); err != nil {
+			log.Printf("Error saving rate limiter state: %v", err)
+		}
+	}()
+
 	isNew := rl.IsNewAccount(c, userID)
 
 	if isNew {
@@ -1168,17 +1176,55 @@ func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
 
 	// Check per-minute limit
 	if rl.MinuteCounts[userID] >= maxPerMinute {
+		rl.ExceededCounts[userID]++
+		if rl.ExceededCounts[userID] >= config.RateLimit.ShadowBanThreshold {
+			rl.ShadowBanUser(c, userID)
+		}
 		return false
 	}
 
 	// Check per-hour limit
 	if rl.HourCounts[userID] >= maxPerHour {
+		rl.ExceededCounts[userID]++
+		if rl.ExceededCounts[userID] >= config.RateLimit.ShadowBanThreshold {
+			rl.ShadowBanUser(c, userID)
+		}
 		return false
 	}
 
 	rl.MinuteCounts[userID]++
 	rl.HourCounts[userID]++
 	return true
+}
+
+func (rl *RateLimiter) ShadowBanUser(c *mastodon.Client, userID string) {
+	log.Printf("Get shadow banned noob %s", userID)
+	rl.ShadowBanned[userID] = true
+	metricsManager.logShadowBan(string(userID))
+	rl.notifyAdmin(c, userID)
+}
+
+func (rl *RateLimiter) IsShadowBanned(userID string) bool {
+	return rl.ShadowBanned[userID]
+}
+
+func (rl *RateLimiter) notifyAdmin(c *mastodon.Client, userID string) {
+	//Look up the account for the name of the user banned
+	account, err := c.GetAccount(ctx, mastodon.ID(userID))
+	if err != nil {
+		log.Printf("Error fetching account: %v", err)
+		return
+	}
+	name := account.Acct
+
+	message := fmt.Sprintf("%s User %s has been shadow banned for exceeding rate limits. Please investigate.", config.RateLimit.AdminContactHandle, name)
+	_, err = c.PostStatus(ctx, &mastodon.Toot{
+		Status:     message,
+		Visibility: "direct",
+	})
+	if err != nil {
+		log.Printf("Error posting shadow ban notification: %v", err)
+	}
 }
 
 // ResetMinuteCounts resets the per-minute request counts for all users
@@ -1199,6 +1245,10 @@ func (rl *RateLimiter) ResetHourCounts() {
 	for userID := range rl.HourCounts {
 		rl.HourCounts[userID] = 0
 	}
+
+	for userID := range rl.ExceededCounts {
+		rl.ExceededCounts[userID] = 0
+	}
 }
 
 func (rl *RateLimiter) LoadFromFile(filePath string) error {
@@ -1213,9 +1263,6 @@ func (rl *RateLimiter) LoadFromFile(filePath string) error {
 }
 
 func (rl *RateLimiter) SaveToFile(filePath string) error {
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
 	data, err := json.Marshal(rl)
 	if err != nil {
 		return err

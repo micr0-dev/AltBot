@@ -104,6 +104,10 @@ func (mm *MetricsManager) logNewAccountActivity(userID string) {
 	mm.logEvent(userID, "new_account_activity", nil)
 }
 
+func (mm *MetricsManager) logShadowBan(userID string) {
+	mm.logEvent(userID, "shadow_ban", nil)
+}
+
 // logConsentRequest logs a consent request
 func (mm *MetricsManager) logConsentRequest(userID string, granted bool) {
 	details := map[string]interface{}{

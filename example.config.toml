@@ -48,8 +48,10 @@ max_requests_per_user_per_minute = 4
 max_requests_per_user_per_hour = 20
 new_account_max_requests_per_minute = 4
 new_account_max_requests_per_hour = 10
-# How long to consider an account as "new" for rate limiting purposes
-new_account_period_days = 7
+new_account_period_days = 7 # How long to consider an account as "new" for rate limiting purposes
+shadow_ban_threshold = 10 # Number of exceeded attempts before shadow banning
+admin_contact_handle = "@admin" # Fedi handle of the bot's administrator
+
 
 [metrics]
 enabled = true # Set to false to completely disable all metrics collection and logging

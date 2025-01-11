@@ -31,3 +31,4 @@ config.toml
 metrics.json
 altbot_log.json
 consent_requests.json
+ratelimiter.json
