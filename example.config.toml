@@ -44,10 +44,12 @@ follow_back = true
 ask_for_consent = true
 
 [rate_limit]
-# Existing entries
 max_requests_per_user_per_minute = 4
-# New entry for hourly limit
 max_requests_per_user_per_hour = 20
+new_account_max_requests_per_minute = 4
+new_account_max_requests_per_hour = 10
+# How long to consider an account as "new" for rate limiting purposes
+new_account_period_days = 7
 
 [metrics]
 enabled = true # Set to false to completely disable all metrics collection and logging

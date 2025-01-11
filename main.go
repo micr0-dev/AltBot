@@ -94,8 +94,11 @@ type Config struct {
 		Enabled bool `toml:"enabled"`
 	} `toml:"metrics"`
 	RateLimit struct {
-		MaxRequestsPerMinute int `toml:"max_requests_per_user_per_minute"`
-		MaxRequestsPerHour   int `toml:"max_requests_per_user_per_hour"`
+		MaxRequestsPerMinute           int `toml:"max_requests_per_user_per_minute"`
+		MaxRequestsPerHour             int `toml:"max_requests_per_user_per_hour"`
+		NewAccountMaxRequestsPerMinute int `toml:"new_account_max_requests_per_minute"`
+		NewAccountMaxRequestsPerHour   int `toml:"new_account_max_requests_per_hour"`
+		NewAccountPeriodDays           int `toml:"new_account_period_days"`
 	} `toml:"rate_limit"`
 }
 
@@ -179,6 +182,21 @@ func main() {
 
 	// Initialize the rate limiter
 	rateLimiter = NewRateLimiter()
+
+	// Load rate limiter state from file
+	if err := rateLimiter.LoadFromFile("ratelimiter.json"); err != nil {
+		log.Fatalf("Error loading rate limiter state: %v", err)
+	}
+
+	// Set up periodic saving of the rate limiter state
+	go func() {
+		for {
+			time.Sleep(5 * time.Minute)
+			if err := rateLimiter.SaveToFile("ratelimiter.json"); err != nil {
+				log.Printf("Error saving rate limiter state: %v", err)
+			}
+		}
+	}()
 
 	// Reset minute counts every minute
 	go func() {
@@ -548,7 +566,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			start := time.Now()
 
 			// Check if the user has exceeded their rate limit
-			if !rateLimiter.Increment(string(replyPost.Account.ID)) {
+			if !rateLimiter.Increment(c, string(replyPost.Account.ID)) {
 				log.Printf("User @%s has exceeded their rate limit", replyPost.Account.Acct)
 				metricsManager.logRateLimitHit(string(replyPost.Account.ID))
 				mu.Lock()
@@ -1094,38 +1112,72 @@ func cleanupOldEntries() {
 	}
 }
 
-// RateLimiter struct to hold user request counts
 type RateLimiter struct {
+	MinuteCounts map[string]int       `json:"minute_counts"`
+	HourCounts   map[string]int       `json:"hour_counts"`
+	AccountAges  map[string]time.Time `json:"account_ages"`
 	mu           sync.Mutex
-	minuteCounts map[string]int
-	hourCounts   map[string]int
 }
 
 // NewRateLimiter creates a new RateLimiter
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
-		minuteCounts: make(map[string]int),
-		hourCounts:   make(map[string]int),
+		MinuteCounts: make(map[string]int),
+		HourCounts:   make(map[string]int),
+		AccountAges:  make(map[string]time.Time),
 	}
 }
 
+// IsNewAccount checks if the user account age is within the new account period
+func (rl *RateLimiter) IsNewAccount(c *mastodon.Client, userID string) bool {
+	creationDate, exists := rl.AccountAges[userID]
+	if !exists {
+		// Fetch the account creation date if it doesn't exist
+		account, err := c.GetAccount(ctx, mastodon.ID(userID))
+		if err != nil {
+			log.Printf("Error fetching account: %v", err)
+			return false
+		}
+
+		creationDate = account.CreatedAt
+		rl.AccountAges[userID] = creationDate
+	}
+	log.Printf("Account creation date: %v", creationDate)
+	return time.Since(creationDate).Hours() < 24*float64(config.RateLimit.NewAccountPeriodDays)
+}
+
 // Increment increments the request count for a user and checks limits
-func (rl *RateLimiter) Increment(userID string) bool {
+func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
+	isNew := rl.IsNewAccount(c, userID)
+
+	if isNew {
+		log.Printf("Sussy baka New account!!1!1!! feds get his ass: %s", userID)
+		metricsManager.logNewAccountActivity(string(userID))
+	}
+
+	// Determine limits based on account age
+	maxPerMinute := config.RateLimit.MaxRequestsPerMinute
+	maxPerHour := config.RateLimit.MaxRequestsPerHour
+	if isNew {
+		maxPerMinute = config.RateLimit.NewAccountMaxRequestsPerMinute
+		maxPerHour = config.RateLimit.NewAccountMaxRequestsPerHour
+	}
+
 	// Check per-minute limit
-	if rl.minuteCounts[userID] >= config.RateLimit.MaxRequestsPerMinute {
+	if rl.MinuteCounts[userID] >= maxPerMinute {
 		return false
 	}
 
 	// Check per-hour limit
-	if rl.hourCounts[userID] >= config.RateLimit.MaxRequestsPerHour {
+	if rl.HourCounts[userID] >= maxPerHour {
 		return false
 	}
 
-	rl.minuteCounts[userID]++
-	rl.hourCounts[userID]++
+	rl.MinuteCounts[userID]++
+	rl.HourCounts[userID]++
 	return true
 }
 
@@ -1134,8 +1186,8 @@ func (rl *RateLimiter) ResetMinuteCounts() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	for userID := range rl.minuteCounts {
-		rl.minuteCounts[userID] = 0
+	for userID := range rl.MinuteCounts {
+		rl.MinuteCounts[userID] = 0
 	}
 }
 
@@ -1144,9 +1196,31 @@ func (rl *RateLimiter) ResetHourCounts() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	for userID := range rl.hourCounts {
-		rl.hourCounts[userID] = 0
+	for userID := range rl.HourCounts {
+		rl.HourCounts[userID] = 0
 	}
+}
+
+func (rl *RateLimiter) LoadFromFile(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // File does not exist. Start fresh.
+		}
+		return err
+	}
+	return json.Unmarshal(data, rl)
+}
+
+func (rl *RateLimiter) SaveToFile(filePath string) error {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	data, err := json.Marshal(rl)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
 }
 
 // ConsentRequest struct to store consent requests

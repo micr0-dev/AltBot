@@ -100,6 +100,10 @@ func (mm *MetricsManager) logRateLimitHit(userID string) {
 	mm.logEvent(userID, "rate_limit_hit", nil)
 }
 
+func (mm *MetricsManager) logNewAccountActivity(userID string) {
+	mm.logEvent(userID, "new_account_activity", nil)
+}
+
 // logConsentRequest logs a consent request
 func (mm *MetricsManager) logConsentRequest(userID string, granted bool) {
 	details := map[string]interface{}{
