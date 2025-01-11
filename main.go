@@ -439,6 +439,7 @@ func handleFollow(c *mastodon.Client, notification *mastodon.Notification) {
 			return
 		}
 		LogEvent("new_follower")
+		metricsManager.logFollow(string(notification.Account.ID))
 		fmt.Printf("Followed back: %s\n", notification.Account.Acct)
 	}
 }
