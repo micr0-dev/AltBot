@@ -42,8 +42,8 @@ const Version = "1.4"
 const AsciiArt = `    _   _ _   ___     _   
    /_\ | | |_| _ )___| |_ 
   / _ \| |  _| _ / _ |  _|
- /_/ \_|_|\__|___\___/\__| アクセシビリティロボット
-`
+ /_/ \_|_|\__|___\___/\__| `
+const Motto = "アクセシビリティロボット"
 
 type Config struct {
 	Server struct {
@@ -104,6 +104,18 @@ type Config struct {
 	} `toml:"rate_limit"`
 }
 
+const (
+	// Colors
+	Blue   = "\033[34m"
+	Pink   = "\033[38;5;219m"
+	Green  = "\033[32m"
+	Red    = "\033[31m"
+	Yellow = "\033[33m"
+	Reset  = "\033[0m"
+	Cyan   = "\033[36m"
+	White  = "\033[37m"
+)
+
 var config Config
 var model *genai.GenerativeModel
 var client *genai.Client
@@ -142,11 +154,11 @@ func main() {
 	}
 
 	// Print the version and art
-	fmt.Print(AsciiArt)
-	fmt.Printf("AltBot v%s (%s)\n", Version, config.LLM.Provider)
-	if videoAudioProcessingCapability {
-		fmt.Println("Video and Audio processing enabled!")
-	}
+	fmt.Printf("%s%s%s%s%s\n", Cyan, AsciiArt, Pink, Motto, Reset)
+	fmt.Printf("%sAltBot%s v%s (%s)\n", Cyan, Reset, Version, config.LLM.Provider)
+	checkForUpdates()
+
+	fmt.Println("\nFeature Checklist:")
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
@@ -163,6 +175,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error fetching bot account ID: %v", err)
 	}
+
+	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
+	fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(videoAudioProcessingCapability), videoAudioProcessingCapability)
 
 	// Set up Gemini AI model
 	err = Setup(config.Gemini.APIKey)
@@ -181,6 +196,8 @@ func main() {
 	if config.WeeklySummary.Enabled {
 		go startWeeklySummaryScheduler(c)
 	}
+
+	fmt.Printf("%s Weekly Summary: %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.Enabled)
 
 	// Initialize the rate limiter
 	rateLimiter = NewRateLimiter()
@@ -220,9 +237,15 @@ func main() {
 		}
 	}()
 
+	fmt.Printf("%s Consent System: %v\n", getStatusSymbol(config.Behavior.AskForConsent), config.Behavior.AskForConsent)
+
 	// Start metrics manager
 	metricsManager = NewMetricsManager(config.Metrics.Enabled, "metrics.json", 10*time.Second)
 	defer metricsManager.stop()
+	metricsManager.loadFromFile()
+
+	fmt.Printf("%s Metrics Collection: %v\n", getStatusSymbol(config.Metrics.Enabled), config.Metrics.Enabled)
+	fmt.Println("\n-----------------------------------")
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
 
@@ -231,20 +254,23 @@ func main() {
 		switch e := event.(type) {
 		case *mastodon.NotificationEvent:
 			switch e.Notification.Type {
-			case "mention":
-				if originalStatus := e.Notification.Status.InReplyToID; originalStatus != nil {
-					var originalStatusID mastodon.ID
-					switch id := originalStatus.(type) {
+			case "mention": // Get the ID of the status being replied to
+				if parentStatusRef := e.Notification.Status.InReplyToID; parentStatusRef != nil {
+					var parentStatusID mastodon.ID
+
+					// Convert the parent status ID to the correct type
+					switch typedID := parentStatusRef.(type) {
 					case string:
-						originalStatusID = mastodon.ID(id)
+						parentStatusID = mastodon.ID(typedID)
 					case mastodon.ID:
-						originalStatusID = id
+						parentStatusID = typedID
 					}
 
-					getStatus, err := c.GetStatus(ctx, originalStatusID)
+					// Fetch the parent status
+					parentStatus, err := c.GetStatus(ctx, parentStatusID)
 
-					if getStatus == nil {
-						log.Printf("Error fetching original status: %v", err)
+					if parentStatus == nil {
+						log.Printf("Error fetching parent status: %v", err)
 						break
 					}
 
@@ -252,18 +278,21 @@ func main() {
 						handleMention(c, e.Notification)
 					}
 
-					veryOriginalStatus := getStatus.InReplyToID
+					// Get the grandparent status ID (the status that the parent was replying to)
+					grandparentStatusRef := parentStatus.InReplyToID
 
-					var veryOriginalStatusID mastodon.ID
-					switch id := veryOriginalStatus.(type) {
+					var grandparentStatusID mastodon.ID
+					// Convert the grandparent status ID to the correct type
+					switch typedID := grandparentStatusRef.(type) {
 					case string:
-						veryOriginalStatusID = mastodon.ID(id)
+						grandparentStatusID = mastodon.ID(typedID)
 					case mastodon.ID:
-						veryOriginalStatusID = id
+						grandparentStatusID = typedID
 					}
 
-					if _, ok := consentRequests[veryOriginalStatusID]; ok {
-						handleConsentResponse(c, veryOriginalStatusID, e.Notification.Status)
+					// Check if this is a response to a consent request
+					if _, isConsentRequest := consentRequests[grandparentStatusID]; isConsentRequest {
+						handleConsentResponse(c, grandparentStatusID, e.Notification.Status)
 					} else {
 						handleMention(c, e.Notification)
 					}
@@ -1331,4 +1360,86 @@ func extractText(n *html.Node) string {
 		text += extractText(c)
 	}
 	return text
+}
+
+func getStatusSymbol(enabled bool) string {
+	if enabled {
+		return Green + "✓" + Reset
+	}
+	return Red + "✗" + Reset
+}
+
+func checkForUpdates() {
+	latestVersion := fetchLatestVersion()
+	if latestVersion == "" {
+		return
+	}
+
+	// Remove 'v' prefix if present
+	currentVer := strings.TrimPrefix(Version, "v")
+	latestVer := strings.TrimPrefix(latestVersion, "v")
+
+	// Split versions into parts
+	currentParts := strings.Split(currentVer, ".")
+	latestParts := strings.Split(latestVer, ".")
+
+	// Convert to integers for comparison
+	current := make([]int, len(currentParts))
+	latest := make([]int, len(latestParts))
+
+	for i, v := range currentParts {
+		current[i], _ = strconv.Atoi(v)
+	}
+	for i, v := range latestParts {
+		latest[i], _ = strconv.Atoi(v)
+	}
+
+	// Compare versions
+	var comparison int
+	for i := 0; i < len(current) && i < len(latest); i++ {
+		if current[i] < latest[i] {
+			comparison = -1
+			break
+		} else if current[i] > latest[i] {
+			comparison = 1
+			break
+		}
+	}
+
+	// If all parts are equal but one version has more parts, the longer one is newer
+	if comparison == 0 && len(current) != len(latest) {
+		if len(current) < len(latest) {
+			comparison = -1
+		} else {
+			comparison = 1
+		}
+	}
+
+	// Print appropriate message based on comparison
+	if comparison < 0 {
+		fmt.Printf("New version %s available! Visit: https://github.com/micr0-dev/AltBot/releases\n", latestVersion)
+	} else if comparison == 0 {
+		fmt.Println("AltBot is up-to-date.")
+	} else {
+		fmt.Println("Wowie~ ur using a newer version than the latest release! UwU u must be a developer or something!~")
+	}
+}
+
+func fetchLatestVersion() string {
+	resp, err := http.Get("https://api.github.com/repos/micr0-dev/AltBot/releases/latest")
+	if err != nil {
+		log.Printf("Error fetching latest version: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		log.Printf("Error decoding JSON: %v", err)
+		return ""
+	}
+
+	return release.TagName
 }

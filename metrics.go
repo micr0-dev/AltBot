@@ -121,18 +121,55 @@ func (mm *MetricsManager) saveToFile() {
 	mm.fileMutex.Lock()
 	defer mm.fileMutex.Unlock()
 
-	file, err := os.OpenFile(mm.filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0644)
+	// Create the file if it doesn't exist, or open it for writing
+	file, err := os.OpenFile(mm.filePath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("Error opening metrics file: %v", err)
 		return
 	}
 	defer file.Close()
 
+	// Truncate the file before writing (since we're writing all metrics)
+	if err := file.Truncate(0); err != nil {
+		log.Printf("Error truncating metrics file: %v", err)
+		return
+	}
+
+	// Reset file pointer to beginning
+	if _, err := file.Seek(0, 0); err != nil {
+		log.Printf("Error seeking in metrics file: %v", err)
+		return
+	}
+
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(mm.logs); err != nil {
 		log.Printf("Error writing metrics to file: %v", err)
 	}
+}
+
+func (mm *MetricsManager) loadFromFile() {
+	mm.fileMutex.Lock()
+	defer mm.fileMutex.Unlock()
+
+	// Check if file exists
+	if _, err := os.Stat(mm.filePath); os.IsNotExist(err) {
+		return
+	}
+
+	file, err := os.ReadFile(mm.filePath)
+	if err != nil {
+		log.Printf("Error reading metrics file: %v", err)
+		return
+	}
+
+	var existingLogs []MetricEvent
+	if err := json.Unmarshal(file, &existingLogs); err != nil {
+		log.Printf("Error parsing metrics file: %v", err)
+		return
+	}
+
+	mm.logs = existingLogs
 }
 
 // stop terminates the background metrics manager
