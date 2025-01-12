@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"image"
 	"image/gif"
@@ -23,6 +24,7 @@ import (
 	"golang.org/x/image/bmp"
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
+	"golang.org/x/net/html"
 	"golang.org/x/text/cases"
 	"golang.org/x/text/language"
 
@@ -34,14 +36,14 @@ import (
 
 // Version of the bot
 
-const Version = "1.3.1"
+const Version = "1.4"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
    /_\ | | |_| _ )___| |_ 
   / _ \| |  _| _ / _ |  _|
- /_/ \_|_|\__|___\___/\__|
-`
+ /_/ \_|_|\__|___\___/\__| `
+const Motto = "アクセシビリティロボット"
 
 type Config struct {
 	Server struct {
@@ -73,9 +75,8 @@ type Config struct {
 		IgnoreBots bool     `toml:"ignore_bots"`
 	} `toml:"dni"`
 	ImageProcessing struct {
-		DownscaleWidth              uint `toml:"downscale_width"`
-		MaxSizeMB                   uint `toml:"max_size_mb"`
-		MaxRequestsPerUserPerMinute int  `toml:"max_requests_per_user_per_minute"`
+		DownscaleWidth uint `toml:"downscale_width"`
+		MaxSizeMB      uint `toml:"max_size_mb"`
 	} `toml:"image_processing"`
 	Behavior struct {
 		ReplyVisibility string `toml:"reply_visibility"`
@@ -89,18 +90,44 @@ type Config struct {
 		MessageTemplate string   `toml:"message_template"`
 		Tips            []string `toml:"tips"`
 	} `toml:"weekly_summary"`
+	Metrics struct {
+		Enabled bool `toml:"enabled"`
+	} `toml:"metrics"`
+	RateLimit struct {
+		MaxRequestsPerMinute           int    `toml:"max_requests_per_user_per_minute"`
+		MaxRequestsPerHour             int    `toml:"max_requests_per_user_per_hour"`
+		NewAccountMaxRequestsPerMinute int    `toml:"new_account_max_requests_per_minute"`
+		NewAccountMaxRequestsPerHour   int    `toml:"new_account_max_requests_per_hour"`
+		NewAccountPeriodDays           int    `toml:"new_account_period_days"`
+		ShadowBanThreshold             int    `toml:"shadow_ban_threshold"`
+		AdminContactHandle             string `toml:"admin_contact_handle"`
+	} `toml:"rate_limit"`
 }
+
+const (
+	// Colors
+	Blue   = "\033[34m"
+	Pink   = "\033[38;5;219m"
+	Green  = "\033[32m"
+	Red    = "\033[31m"
+	Yellow = "\033[33m"
+	Reset  = "\033[0m"
+	Cyan   = "\033[36m"
+	White  = "\033[37m"
+)
 
 var config Config
 var model *genai.GenerativeModel
 var client *genai.Client
 var ctx context.Context
 
-var consentRequests = make(map[mastodon.ID]mastodon.ID)
+var consentRequests = make(map[mastodon.ID]ConsentRequest)
 
 var videoAudioProcessingCapability = true
 
 var rateLimiter *RateLimiter
+
+var metricsManager *MetricsManager
 
 func main() {
 	// Load configuration from TOML file
@@ -127,11 +154,11 @@ func main() {
 	}
 
 	// Print the version and art
-	fmt.Print(AsciiArt)
-	fmt.Printf("AltBot v%s (%s)\n", Version, config.LLM.Provider)
-	if videoAudioProcessingCapability {
-		fmt.Println("Video and Audio processing enabled!")
-	}
+	fmt.Printf("%s%s%s%s%s\n", Cyan, AsciiArt, Pink, Motto, Reset)
+	fmt.Printf("%sAltBot%s v%s (%s)\n", Cyan, Reset, Version, config.LLM.Provider)
+	checkForUpdates()
+
+	fmt.Println("\nFeature Checklist:")
 
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
@@ -148,6 +175,9 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error fetching bot account ID: %v", err)
 	}
+
+	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
+	fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(videoAudioProcessingCapability), videoAudioProcessingCapability)
 
 	// Set up Gemini AI model
 	err = Setup(config.Gemini.APIKey)
@@ -167,19 +197,55 @@ func main() {
 		go startWeeklySummaryScheduler(c)
 	}
 
+	fmt.Printf("%s Weekly Summary: %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.Enabled)
+
 	// Initialize the rate limiter
 	rateLimiter = NewRateLimiter()
 
-	// Start a goroutine for periodic rate limiter reset
+	// Load rate limiter state from file
+	if err := rateLimiter.LoadFromFile("ratelimiter.json"); err != nil {
+		log.Fatalf("Error loading rate limiter state: %v", err)
+	}
+
+	// Reset minute counts every minute
 	go func() {
 		for {
 			time.Sleep(1 * time.Minute)
-			rateLimiter.Reset()
+			rateLimiter.ResetMinuteCounts()
+		}
+	}()
+
+	// Reset hour counts every hour
+	go func() {
+		for {
+			time.Sleep(1 * time.Hour)
+			rateLimiter.ResetHourCounts()
 		}
 	}()
 
 	// Start a goroutine for periodic cleanup of old reply entries
 	go cleanupOldEntries()
+
+	if err := loadConsentRequestsFromFile("consent_requests.json"); err != nil {
+		log.Fatalf("Error loading consent requests: %v", err)
+	}
+
+	go func() {
+		for {
+			time.Sleep(1 * time.Hour)
+			cleanupOldConsentRequests()
+		}
+	}()
+
+	fmt.Printf("%s Consent System: %v\n", getStatusSymbol(config.Behavior.AskForConsent), config.Behavior.AskForConsent)
+
+	// Start metrics manager
+	metricsManager = NewMetricsManager(config.Metrics.Enabled, "metrics.json", 10*time.Second)
+	defer metricsManager.stop()
+	metricsManager.loadFromFile()
+
+	fmt.Printf("%s Metrics Collection: %v\n", getStatusSymbol(config.Metrics.Enabled), config.Metrics.Enabled)
+	fmt.Println("\n-----------------------------------")
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
 
@@ -188,20 +254,23 @@ func main() {
 		switch e := event.(type) {
 		case *mastodon.NotificationEvent:
 			switch e.Notification.Type {
-			case "mention":
-				if originalStatus := e.Notification.Status.InReplyToID; originalStatus != nil {
-					var originalStatusID mastodon.ID
-					switch id := originalStatus.(type) {
+			case "mention": // Get the ID of the status being replied to
+				if parentStatusRef := e.Notification.Status.InReplyToID; parentStatusRef != nil {
+					var parentStatusID mastodon.ID
+
+					// Convert the parent status ID to the correct type
+					switch typedID := parentStatusRef.(type) {
 					case string:
-						originalStatusID = mastodon.ID(id)
+						parentStatusID = mastodon.ID(typedID)
 					case mastodon.ID:
-						originalStatusID = id
+						parentStatusID = typedID
 					}
 
-					getStatus, err := c.GetStatus(ctx, originalStatusID)
+					// Fetch the parent status
+					parentStatus, err := c.GetStatus(ctx, parentStatusID)
 
-					if getStatus == nil {
-						log.Printf("Error fetching original status: %v", err)
+					if parentStatus == nil {
+						log.Printf("Error fetching parent status: %v", err)
 						break
 					}
 
@@ -209,18 +278,21 @@ func main() {
 						handleMention(c, e.Notification)
 					}
 
-					veryOriginalStatus := getStatus.InReplyToID
+					// Get the grandparent status ID (the status that the parent was replying to)
+					grandparentStatusRef := parentStatus.InReplyToID
 
-					var veryOriginalStatusID mastodon.ID
-					switch id := veryOriginalStatus.(type) {
+					var grandparentStatusID mastodon.ID
+					// Convert the grandparent status ID to the correct type
+					switch typedID := grandparentStatusRef.(type) {
 					case string:
-						veryOriginalStatusID = mastodon.ID(id)
+						grandparentStatusID = mastodon.ID(typedID)
 					case mastodon.ID:
-						veryOriginalStatusID = id
+						grandparentStatusID = typedID
 					}
 
-					if _, ok := consentRequests[veryOriginalStatusID]; ok {
-						handleConsentResponse(c, veryOriginalStatusID, e.Notification.Status)
+					// Check if this is a response to a consent request
+					if _, isConsentRequest := consentRequests[grandparentStatusID]; isConsentRequest {
+						handleConsentResponse(c, grandparentStatusID, e.Notification.Status)
 					} else {
 						handleMention(c, e.Notification)
 					}
@@ -368,7 +440,10 @@ func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *m
 		return
 	}
 
-	consentRequests[status.ID] = notification.Status.ID
+	consentRequests[status.ID] = ConsentRequest{
+		RequestID: notification.Status.ID,
+		Timestamp: time.Now(),
+	}
 
 	message := fmt.Sprintf("@%s "+getLocalizedString(notification.Status.Language, "consentRequest", "response"), status.Account.Acct, notification.Account.Acct)
 	_, err := c.PostStatus(ctx, &mastodon.Toot{
@@ -380,6 +455,10 @@ func requestConsent(c *mastodon.Client, status *mastodon.Status, notification *m
 	if err != nil {
 		log.Printf("Error posting consent request: %v", err)
 	}
+
+	if err := saveConsentRequestsToFile("consent_requests.json"); err != nil {
+		log.Printf("Error saving consent requests: %v", err)
+	}
 }
 
 // handleConsentResponse processes the consent response from the original poster
@@ -387,18 +466,48 @@ func handleConsentResponse(c *mastodon.Client, ID mastodon.ID, consentStatus *ma
 	originalStatusID := ID
 	status, err := c.GetStatus(ctx, originalStatusID)
 	if err != nil {
-		log.Printf("Error fetching original status: %v", err)
+		log.Printf("Error fetching original status for ID %s: %v", originalStatusID, err)
 		return
 	}
 
-	content := strings.TrimSpace(strings.ToLower(consentStatus.Content))
-	if strings.Contains(content, "y") || strings.Contains(content, "yes") {
-		generateAndPostAltText(c, status, consentStatus.ID)
-	} else {
-		log.Printf("Consent denied by the original poster: %s", consentStatus.Account.Acct)
+	if consentStatus.Account.Acct != status.Account.Acct {
+		log.Printf("Unauthorized consent response from: %s, expected: %s", consentStatus.Account.Acct, status.Account.Acct)
+		return
 	}
-	delete(consentRequests, originalStatusID)
 
+	// Clean up HTML content to extract plain text
+	plainTextContent := stripHTMLTags(consentStatus.Content)
+	log.Printf("Cleaned consent content: %q from user: %s", plainTextContent, consentStatus.Account.Acct)
+
+	if plainTextContent == "" {
+		log.Printf("No content in consent response from: %s", consentStatus.Account.Acct)
+		return
+	}
+
+	// Split content into words and check the last word
+	consentResponse := strings.Fields(plainTextContent)
+	if len(consentResponse) == 0 {
+		log.Printf("Empty content after stripping HTML.")
+		return
+	}
+	lastWord := strings.ToLower(consentResponse[len(consentResponse)-1])
+	log.Printf("Extracted last word: %q from cleaned content", lastWord)
+
+	if lastWord == "y" || lastWord == "yes" {
+		log.Printf("Consent granted by the original poster: %s", consentStatus.Account.Acct)
+		generateAndPostAltText(c, status, consentStatus.ID)
+		metricsManager.logConsentRequest(string(status.Account.ID), true)
+	} else {
+		log.Printf("Consent denied based on last word: %q from user: %s", lastWord, consentStatus.Account.Acct)
+		metricsManager.logConsentRequest(string(status.Account.ID), false)
+	}
+
+	delete(consentRequests, originalStatusID)
+	log.Printf("Removed consent request for ID %s after processing", originalStatusID)
+
+	if err := saveConsentRequestsToFile("consent_requests.json"); err != nil {
+		log.Printf("Error saving consent requests: %v", err)
+	}
 }
 
 // isDNI checks if an account meets the Do Not Interact (DNI) conditions
@@ -429,6 +538,7 @@ func handleFollow(c *mastodon.Client, notification *mastodon.Notification) {
 			return
 		}
 		LogEvent("new_follower")
+		metricsManager.logFollow(string(notification.Account.ID))
 		fmt.Printf("Followed back: %s\n", notification.Account.Acct)
 	}
 }
@@ -459,6 +569,8 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		return
 	}
 
+	metricsManager.logRequest(string(replyPost.Account.ID))
+
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	var responses []string
@@ -472,9 +584,12 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			var altText string
 			var err error
 
+			start := time.Now()
+
 			// Check if the user has exceeded their rate limit
-			if !rateLimiter.Increment(string(replyPost.Account.ID)) {
+			if !rateLimiter.Increment(c, string(replyPost.Account.ID)) {
 				log.Printf("User @%s has exceeded their rate limit", replyPost.Account.Acct)
+				metricsManager.logRateLimitHit(string(replyPost.Account.ID))
 				mu.Lock()
 				responses = append(responses, getLocalizedString(replyPost.Language, "altTextError", "response"))
 				mu.Unlock()
@@ -510,10 +625,14 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 				altText = getLocalizedString(replyPost.Language, "altTextError", "response")
 			}
 
+			elapsed := time.Since(start).Milliseconds()
+
 			mu.Lock()
 			responses = append(responses, altText)
 			mu.Unlock()
 			altTextGenerated = true
+
+			metricsManager.logSuccessfulGeneration(string(replyPost.Account.ID), attachment.Type, elapsed)
 		}(attachment)
 	}
 
@@ -1014,38 +1133,313 @@ func cleanupOldEntries() {
 	}
 }
 
-// RateLimiter struct to hold user request counts
 type RateLimiter struct {
-	mu        sync.Mutex
-	userCount map[string]int
+	MinuteCounts   map[string]int       `json:"minute_counts"`
+	HourCounts     map[string]int       `json:"hour_counts"`
+	AccountAges    map[string]time.Time `json:"account_ages"`
+	mu             sync.Mutex
+	ExceededCounts map[string]int  `json:"exceeded_counts"`
+	ShadowBanned   map[string]bool `json:"shadow_banned"`
 }
 
 // NewRateLimiter creates a new RateLimiter
 func NewRateLimiter() *RateLimiter {
 	return &RateLimiter{
-		userCount: make(map[string]int),
+		MinuteCounts:   make(map[string]int),
+		HourCounts:     make(map[string]int),
+		AccountAges:    make(map[string]time.Time),
+		ExceededCounts: make(map[string]int),
+		ShadowBanned:   make(map[string]bool),
 	}
 }
 
-// Increment increments the request count for a user
-func (rl *RateLimiter) Increment(userID string) bool {
+// IsNewAccount checks if the user account age is within the new account period
+func (rl *RateLimiter) IsNewAccount(c *mastodon.Client, userID string) bool {
+	creationDate, exists := rl.AccountAges[userID]
+	if !exists {
+		// Fetch the account creation date if it doesn't exist
+		account, err := c.GetAccount(ctx, mastodon.ID(userID))
+		if err != nil {
+			log.Printf("Error fetching account: %v", err)
+			return false
+		}
+
+		creationDate = account.CreatedAt
+		rl.AccountAges[userID] = creationDate
+	}
+	log.Printf("Account creation date: %v", creationDate)
+	return time.Since(creationDate).Hours() < 24*float64(config.RateLimit.NewAccountPeriodDays)
+}
+
+// Increment increments the request count for a user and checks limits
+func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	if rl.userCount[userID] >= config.ImageProcessing.MaxRequestsPerUserPerMinute {
+	isBanned := rl.IsShadowBanned(userID)
+	log.Printf("User %s is shadow banned: %v", userID, isBanned)
+	if isBanned {
 		return false
 	}
 
-	rl.userCount[userID]++
+	defer func() {
+		if err := rateLimiter.SaveToFile("ratelimiter.json"); err != nil {
+			log.Printf("Error saving rate limiter state: %v", err)
+		}
+	}()
+
+	isNew := rl.IsNewAccount(c, userID)
+
+	if isNew {
+		log.Printf("Sussy baka New account!!1!1!! feds get his ass: %s", userID)
+		metricsManager.logNewAccountActivity(string(userID))
+	}
+
+	// Determine limits based on account age
+	maxPerMinute := config.RateLimit.MaxRequestsPerMinute
+	maxPerHour := config.RateLimit.MaxRequestsPerHour
+	if isNew {
+		maxPerMinute = config.RateLimit.NewAccountMaxRequestsPerMinute
+		maxPerHour = config.RateLimit.NewAccountMaxRequestsPerHour
+	}
+
+	// Check per-minute limit
+	if rl.MinuteCounts[userID] >= maxPerMinute {
+		rl.ExceededCounts[userID]++
+		if rl.ExceededCounts[userID] >= config.RateLimit.ShadowBanThreshold {
+			rl.ShadowBanUser(c, userID)
+		}
+		return false
+	}
+
+	// Check per-hour limit
+	if rl.HourCounts[userID] >= maxPerHour {
+		rl.ExceededCounts[userID]++
+		if rl.ExceededCounts[userID] >= config.RateLimit.ShadowBanThreshold {
+			rl.ShadowBanUser(c, userID)
+		}
+		return false
+	}
+
+	rl.MinuteCounts[userID]++
+	rl.HourCounts[userID]++
 	return true
 }
 
-// Reset resets the request counts for all users
-func (rl *RateLimiter) Reset() {
+func (rl *RateLimiter) ShadowBanUser(c *mastodon.Client, userID string) {
+	log.Printf("Get shadow banned noob %s", userID)
+	rl.ShadowBanned[userID] = true
+	metricsManager.logShadowBan(string(userID))
+	rl.notifyAdmin(c, userID)
+}
+
+func (rl *RateLimiter) IsShadowBanned(userID string) bool {
+	return rl.ShadowBanned[userID]
+}
+
+func (rl *RateLimiter) notifyAdmin(c *mastodon.Client, userID string) {
+	//Look up the account for the name of the user banned
+	account, err := c.GetAccount(ctx, mastodon.ID(userID))
+	if err != nil {
+		log.Printf("Error fetching account: %v", err)
+		return
+	}
+	name := account.Acct
+
+	message := fmt.Sprintf("%s User %s has been shadow banned for exceeding rate limits. Please investigate.", config.RateLimit.AdminContactHandle, name)
+	_, err = c.PostStatus(ctx, &mastodon.Toot{
+		Status:     message,
+		Visibility: "direct",
+	})
+	if err != nil {
+		log.Printf("Error posting shadow ban notification: %v", err)
+	}
+}
+
+// ResetMinuteCounts resets the per-minute request counts for all users
+func (rl *RateLimiter) ResetMinuteCounts() {
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
-	for userID := range rl.userCount {
-		rl.userCount[userID] = 0
+	for userID := range rl.MinuteCounts {
+		rl.MinuteCounts[userID] = 0
 	}
+}
+
+// ResetHourCounts resets the per-hour request counts for all users
+func (rl *RateLimiter) ResetHourCounts() {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	for userID := range rl.HourCounts {
+		rl.HourCounts[userID] = 0
+	}
+
+	for userID := range rl.ExceededCounts {
+		rl.ExceededCounts[userID] = 0
+	}
+}
+
+func (rl *RateLimiter) LoadFromFile(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil // File does not exist. Start fresh.
+		}
+		return err
+	}
+	return json.Unmarshal(data, rl)
+}
+
+func (rl *RateLimiter) SaveToFile(filePath string) error {
+	data, err := json.Marshal(rl)
+	if err != nil {
+		return err
+	}
+	return os.WriteFile(filePath, data, 0644)
+}
+
+// ConsentRequest struct to store consent requests
+type ConsentRequest struct {
+	RequestID mastodon.ID
+	Timestamp time.Time
+}
+
+func saveConsentRequestsToFile(filePath string) error {
+	data, err := json.Marshal(consentRequests)
+	if err != nil {
+		return err
+	}
+
+	return os.WriteFile(filePath, data, 0644)
+}
+
+func loadConsentRequestsFromFile(filePath string) error {
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if os.IsNotExist(err) {
+			// File doesn't exist, so initialize an empty map
+			consentRequests = make(map[mastodon.ID]ConsentRequest)
+			return nil
+		}
+		return err
+	}
+
+	if err := json.Unmarshal(data, &consentRequests); err != nil {
+		return err
+	}
+
+	return nil
+}
+
+func cleanupOldConsentRequests() {
+	for id, request := range consentRequests {
+		if time.Since(request.Timestamp) > 30*24*time.Hour { // 30 days
+			delete(consentRequests, id)
+		}
+	}
+}
+
+// stripHTMLTags extracts and returns plain text from HTML content
+func stripHTMLTags(htmlContent string) string {
+	doc, err := html.Parse(strings.NewReader(htmlContent))
+	if err != nil {
+		log.Printf("Error parsing HTML: %v", err)
+		return htmlContent // Return unchanged if parsing fails
+	}
+	return extractText(doc)
+}
+
+// extractText recursively extracts text from an HTML node
+func extractText(n *html.Node) string {
+	if n.Type == html.TextNode {
+		return n.Data
+	}
+	var text string
+	for c := n.FirstChild; c != nil; c = c.NextSibling {
+		text += extractText(c)
+	}
+	return text
+}
+
+func getStatusSymbol(enabled bool) string {
+	if enabled {
+		return Green + "✓" + Reset
+	}
+	return Red + "✗" + Reset
+}
+
+func checkForUpdates() {
+	latestVersion := fetchLatestVersion()
+	if latestVersion == "" {
+		return
+	}
+
+	// Remove 'v' prefix if present
+	currentVer := strings.TrimPrefix(Version, "v")
+	latestVer := strings.TrimPrefix(latestVersion, "v")
+
+	// Split versions into parts
+	currentParts := strings.Split(currentVer, ".")
+	latestParts := strings.Split(latestVer, ".")
+
+	// Convert to integers for comparison
+	current := make([]int, len(currentParts))
+	latest := make([]int, len(latestParts))
+
+	for i, v := range currentParts {
+		current[i], _ = strconv.Atoi(v)
+	}
+	for i, v := range latestParts {
+		latest[i], _ = strconv.Atoi(v)
+	}
+
+	// Compare versions
+	var comparison int
+	for i := 0; i < len(current) && i < len(latest); i++ {
+		if current[i] < latest[i] {
+			comparison = -1
+			break
+		} else if current[i] > latest[i] {
+			comparison = 1
+			break
+		}
+	}
+
+	// If all parts are equal but one version has more parts, the longer one is newer
+	if comparison == 0 && len(current) != len(latest) {
+		if len(current) < len(latest) {
+			comparison = -1
+		} else {
+			comparison = 1
+		}
+	}
+
+	// Print appropriate message based on comparison
+	if comparison < 0 {
+		fmt.Printf("New version %s available! Visit: https://github.com/micr0-dev/AltBot/releases\n", latestVersion)
+	} else if comparison == 0 {
+		fmt.Println("AltBot is up-to-date.")
+	} else {
+		fmt.Println("Wowie~ ur using a newer version than the latest release! UwU u must be a developer or something!~")
+	}
+}
+
+func fetchLatestVersion() string {
+	resp, err := http.Get("https://api.github.com/repos/micr0-dev/AltBot/releases/latest")
+	if err != nil {
+		log.Printf("Error fetching latest version: %v", err)
+		return ""
+	}
+	defer resp.Body.Close()
+
+	var release struct {
+		TagName string `json:"tag_name"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&release); err != nil {
+		log.Printf("Error decoding JSON: %v", err)
+		return ""
+	}
+
+	return release.TagName
 }

@@ -34,7 +34,6 @@ ignore_bots = true
 # Greater values may break the image processing due to haivng a size greater than the maximum allowed by the API
 downscale_width = 800
 max_size_mb = 100                    # Maximum file size in MB for to be processed (Video, Images, Audio, etc)
-max_requests_per_user_per_minute = 4 # Maximum number of requests per user per minute
 
 [behavior]
 # Maximum visibility of the replies to the bot, can be "public", "unlisted", "private" or "direct"
@@ -43,6 +42,19 @@ reply_visibility = "unlisted"
 follow_back = true
 # Ask for consent when mentioned by none OP users
 ask_for_consent = true
+
+[rate_limit]
+max_requests_per_user_per_minute = 4
+max_requests_per_user_per_hour = 20
+new_account_max_requests_per_minute = 4
+new_account_max_requests_per_hour = 10
+new_account_period_days = 7 # How long to consider an account as "new" for rate limiting purposes
+shadow_ban_threshold = 10 # Number of exceeded attempts before shadow banning
+admin_contact_handle = "@admin" # Fedi handle of the bot's administrator
+
+
+[metrics]
+enabled = true # Set to false to completely disable all metrics collection and logging
 
 [weekly_summary]
 enabled = true # Enable or disable the weekly summary feature (disabling will prevent all built-in Logging as well)
