@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+
+<head>
+    <title>AltBot Dashboard</title>
+    <link rel="stylesheet" href="static/style.css">
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+
+<body>
+    <div class="container">
+        <header>
+            <h1>AltBot Metrics Dashboard</h1>
+            <p class="last-updated">Last updated: <span id="lastUpdated"></span></p>
+        </header>
+
+        <div class="grid">
+            <div class="card">
+                <h2>Event Distribution</h2>
+                <canvas id="eventsPie"></canvas>
+            </div>
+
+            <div class="card">
+                <h2>Activity Timeline</h2>
+                <canvas id="timelineChart"></canvas>
+            </div>
+
+            <div class="card">
+                <h2>User Activity</h2>
+                <canvas id="userActivityChart"></canvas>
+            </div>
+
+            <div class="card">
+                <h2>Quick Stats</h2>
+                <div class="stats-grid">
+                    <div class="stat-item">
+                        <h3>Total Users</h3>
+                        <p id="totalUsers">-</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3>Total Requests</h3>
+                        <p id="totalRequests">-</p>
+                    </div>
+                    <div class="stat-item">
+                        <h3>Rate Limits</h3>
+                        <p id="rateLimits">-</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+    <script src="static/charts.js"></script>
+</body>
+
+</html>

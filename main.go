@@ -1,6 +1,7 @@
 package main
 
 import (
+	"AltBot/dashboard"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -245,6 +246,11 @@ func main() {
 	metricsManager.loadFromFile()
 
 	fmt.Printf("%s Metrics Collection: %v\n", getStatusSymbol(config.Metrics.Enabled), config.Metrics.Enabled)
+
+	dashboard.StartDashboard("metrics.json", 8080)
+
+	fmt.Printf("%s Metrics Dashboard: %s\n", getStatusSymbol(true), "http://localhost:8080")
+
 	fmt.Println("\n-----------------------------------")
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
