@@ -1069,6 +1069,9 @@ func postProcessAltText(altText string) string {
 	// Use the regex to replace matches with an empty string
 	altText = re.ReplaceAllString(altText, "")
 
+	// Remove any mentions
+	altText = strings.ReplaceAll(altText, "@", "[@]")
+
 	// Remove any leading or trailing whitespace
 	altText = strings.TrimSpace(altText)
 
