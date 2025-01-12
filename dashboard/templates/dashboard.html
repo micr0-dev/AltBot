@@ -1,55 +1,75 @@
+<!-- dashboard/templates/dashboard.html -->
 <!DOCTYPE html>
 <html>
 
 <head>
-    <title>AltBot Dashboard</title>
-    <link rel="stylesheet" href="static/style.css">
+    <title>AltBot Status</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
 </head>
 
 <body>
-    <div class="container">
-        <header>
-            <h1>AltBot Metrics Dashboard</h1>
+    <div class="status-header">
+        <div class="container">
+            <h1>AltBot Status</h1>
+            <div class="system-status">
+                <div class="status-indicator operational"></div>
+                <span>All Systems Operational</span>
+            </div>
             <p class="last-updated">Last updated: <span id="lastUpdated"></span></p>
-        </header>
-
-        <div class="grid">
-            <div class="card">
-                <h2>Event Distribution</h2>
-                <canvas id="eventsPie"></canvas>
-            </div>
-
-            <div class="card">
-                <h2>Activity Timeline</h2>
-                <canvas id="timelineChart"></canvas>
-            </div>
-
-            <div class="card">
-                <h2>User Activity</h2>
-                <canvas id="userActivityChart"></canvas>
-            </div>
-
-            <div class="card">
-                <h2>Quick Stats</h2>
-                <div class="stats-grid">
-                    <div class="stat-item">
-                        <h3>Total Users</h3>
-                        <p id="totalUsers">-</p>
-                    </div>
-                    <div class="stat-item">
-                        <h3>Total Requests</h3>
-                        <p id="totalRequests">-</p>
-                    </div>
-                    <div class="stat-item">
-                        <h3>Rate Limits</h3>
-                        <p id="rateLimits">-</p>
-                    </div>
-                </div>
-            </div>
         </div>
     </div>
-    <script src="static/charts.js"></script>
+
+    <div class="container">
+        <section class="quick-stats">
+            <h2 class="section-title">Current Statistics</h2>
+            <div class="stats-grid">
+                <div class="stat-card">
+                    <div class="stat-value" id="totalRequests">-</div>
+                    <div class="stat-label">Total Requests</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="totalUsers">-</div>
+                    <div class="stat-label">Unique Users</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="avgResponseTime">-</div>
+                    <div class="stat-label">Avg Response Time</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-value" id="rateLimits">-</div>
+                    <div class="stat-label">Rate Limits</div>
+                </div>
+            </div>
+        </section>
+
+        <section class="detailed-analytics">
+            <h2 class="section-title">Detailed Analytics</h2>
+            <div class="charts-grid">
+                <div class="chart-card">
+                    <h3>Activity & Response Times</h3>
+                    <div class="chart-container">
+                        <canvas id="combinedChart"></canvas>
+                    </div>
+                </div>
+                <div class="chart-card">
+                    <h3>Media Types</h3>
+                    <canvas id="mediaTypePie"></canvas>
+                </div>
+                <div class="chart-card">
+                    <h3>Event Distribution</h3>
+                    <canvas id="eventsPie"></canvas>
+                </div>
+            </div>
+        </section>
+
+        <section class="event-timeline">
+            <h2 class="section-title">Event Timeline</h2>
+            <div class="timeline" id="timeline">
+            </div>
+        </section>
+        <script src="/static/charts.js"></script>
 </body>
 
 </html>
