@@ -92,7 +92,9 @@ type Config struct {
 		Tips            []string `toml:"tips"`
 	} `toml:"weekly_summary"`
 	Metrics struct {
-		Enabled bool `toml:"enabled"`
+		Enabled          bool `toml:"enabled"`
+		DashboardEnabled bool `toml:"dashboard_enabled"`
+		DashboardPort    int  `toml:"dashboard_port"`
 	} `toml:"metrics"`
 	RateLimit struct {
 		MaxRequestsPerMinute           int    `toml:"max_requests_per_user_per_minute"`
@@ -247,9 +249,12 @@ func main() {
 
 	fmt.Printf("%s Metrics Collection: %v\n", getStatusSymbol(config.Metrics.Enabled), config.Metrics.Enabled)
 
-	dashboard.StartDashboard("metrics.json", 8080)
-
-	fmt.Printf("%s Metrics Dashboard: %s\n", getStatusSymbol(true), "http://localhost:8080")
+	if config.Metrics.DashboardEnabled {
+		dashboard.StartDashboard("metrics.json", config.Metrics.DashboardPort)
+		fmt.Printf("%s Metrics Dashboard: %s\n", getStatusSymbol(true), "http://localhost:"+strconv.Itoa(config.Metrics.DashboardPort))
+	} else {
+		fmt.Printf("%s Metrics Dashboard: %v\n", getStatusSymbol(false), config.Metrics.DashboardEnabled)
+	}
 
 	fmt.Println("\n-----------------------------------")
 
