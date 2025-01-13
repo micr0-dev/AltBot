@@ -7,6 +7,7 @@
     <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="/static/style.css">
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chartjs-plugin-annotation"></script>
 </head>
 
 <body>
@@ -46,20 +47,24 @@
 
         <section class="detailed-analytics">
             <h2 class="section-title">Detailed Analytics</h2>
-            <div class="charts-grid">
+            <div class="analytics-container">
                 <div class="chart-card">
                     <h3>Activity & Response Times</h3>
-                    <div class="chart-container">
-                        <canvas id="combinedChart"></canvas>
+                    <div class="chart-wrapper">
+                        <canvas id="combinedChart" width="600" height="300"></canvas>
                     </div>
                 </div>
                 <div class="chart-card">
                     <h3>Media Types</h3>
-                    <canvas id="mediaTypePie"></canvas>
+                    <div class="chart-wrapper">
+                        <canvas id="mediaTypePie" width="300" height="300"></canvas>
+                    </div>
                 </div>
                 <div class="chart-card">
                     <h3>Event Distribution</h3>
-                    <canvas id="eventsPie"></canvas>
+                    <div class="chart-wrapper">
+                        <canvas id="eventsPie" width="300" height="300"></canvas>
+                    </div>
                 </div>
             </div>
         </section>
@@ -67,6 +72,9 @@
         <section class="event-timeline">
             <h2 class="section-title">Event Timeline</h2>
             <div class="timeline" id="timeline">
+            </div>
+            <div class="load-more-container">
+                <button id="loadMoreBtn" class="load-more-btn">Load More</button>
             </div>
         </section>
         <script src="/static/charts.js"></script>

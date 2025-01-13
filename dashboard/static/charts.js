@@ -23,24 +23,9 @@ function getChartDefaults() {
                 }
             }
         },
-        scales: {
-            x: {
-                grid: {
-                    display: false
-                },
-                ticks: {
-                    color: textColor
-                }
-            },
-            y: {
-                grid: {
-                    display: false
-                },
-                ticks: {
-                    color: textColor
-                }
-            }
-        }
+        responsive: true,
+        maintainAspectRatio: false,
+        aspectRatio: 1,
     };
 }
 
@@ -146,7 +131,7 @@ function updateCharts(metrics) {
             ...defaultOptions,
             plugins: {
                 legend: {
-                    display: false  // This removes the legend
+                    display: false
                 }
             }
         }
@@ -172,16 +157,11 @@ function updateCharts(metrics) {
             ...defaultOptions,
             plugins: {
                 legend: {
-                    position: 'bottom',
-                    labels: {
-                        color: defaultOptions.color,
-                        padding: 20
-                    }
+                    display: false
                 }
             }
         }
     });
-
     const ctx3 = document.getElementById('combinedChart').getContext('2d');
     if (charts.combinedChart) charts.combinedChart.destroy();
 
@@ -196,6 +176,9 @@ function updateCharts(metrics) {
     const avgResponseTimes = hourlyResponseTimes.map(h =>
         h.count > 0 ? h.sum / h.count : 0);
 
+    // Get current hour for the line
+    const currentHour = new Date().getHours();
+
     charts.combinedChart = new Chart(ctx3, {
         type: 'line',
         data: {
@@ -208,7 +191,7 @@ function updateCharts(metrics) {
                 borderRadius: 4,
                 yAxisID: 'y1'
             }, {
-                label: 'Avg Response Time (ms)',
+                label: 'Response Time (ms)',
                 data: avgResponseTimes,
                 borderColor: '#ef4444',
                 tension: 0.4,
@@ -218,8 +201,6 @@ function updateCharts(metrics) {
         },
         options: {
             ...defaultOptions,
-            maintainAspectRatio: true,
-            aspectRatio: 2,
             scales: {
                 y1: {
                     type: 'linear',
@@ -239,6 +220,33 @@ function updateCharts(metrics) {
                     },
                     ticks: {
                         color: defaultOptions.color
+                    }
+                },
+                x: {
+                    grid: {
+                        display: false
+                    },
+                    ticks: {
+                        color: defaultOptions.color
+                    }
+                }
+            },
+            plugins: {
+                annotation: {
+                    annotations: {
+                        currentTime: {
+                            type: 'line',
+                            xMin: currentHour,
+                            xMax: currentHour,
+                            borderColor: isDarkMode() ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
+                            borderWidth: 2,
+                            borderDash: [5, 5],
+                            label: {
+                                display: true,
+                                content: 'Now',
+                                position: 'top'
+                            }
+                        }
                     }
                 }
             }
@@ -266,14 +274,17 @@ async function updateDashboard() {
     const metrics = await fetchMetrics();
     const processed = processMetrics(metrics);
     updateCharts(processed);
-    updateTimeline(metrics);
 }
 
-// Initial load
-updateDashboard();
+document.addEventListener('DOMContentLoaded', async () => {
+    // Initial load of both charts and timeline
+    const metrics = await fetchMetrics();
+    const processed = processMetrics(metrics);
+    updateCharts(processed);
+    updateTimeline(metrics);
 
-// Refresh every minute
-setInterval(updateDashboard, 60000);
+    setInterval(updateDashboard, 60000);
+});
 
 function formatEventType(type) {
     return type
@@ -326,18 +337,29 @@ function formatTimeAgo(timestamp) {
     return 'just now';
 }
 
-function updateTimeline(data) {
+let currentPage = 1;
+const eventsPerPage = 20;
+let allEvents = []; // Store all events
+
+function updateTimeline(data, append = false) {
     const timeline = document.getElementById('timeline');
-    timeline.innerHTML = ''; // Clear existing events
+    const loadMoreBtn = document.getElementById('loadMoreBtn');
 
-    // Sort events by timestamp in descending order
-    const sortedEvents = [...data].sort((a, b) =>
-        new Date(b.Timestamp) - new Date(a.Timestamp));
+    // Store all events on first load
+    if (!append) {
+        allEvents = [...data].sort((a, b) =>
+            new Date(b.Timestamp) - new Date(a.Timestamp));
+        timeline.innerHTML = ''; // Clear only on first load
+        currentPage = 1; // Reset page count on fresh load
+    }
 
-    // Take only the last 20 events
-    const recentEvents = sortedEvents.slice(0, 20);
+    // Calculate the correct slice of events
+    const startIndex = (currentPage - 1) * eventsPerPage;
+    const endIndex = currentPage * eventsPerPage;
+    const eventsToShow = allEvents.slice(startIndex, endIndex);
 
-    recentEvents.forEach(event => {
+    // Add events to timeline
+    eventsToShow.forEach(event => {
         const timeAgo = formatTimeAgo(event.Timestamp);
         const formattedType = formatEventType(event.EventType);
 
@@ -369,4 +391,23 @@ function updateTimeline(data) {
 
         timeline.insertAdjacentHTML('beforeend', itemHTML);
     });
+
+    // Update button state
+    loadMoreBtn.disabled = endIndex >= allEvents.length;
+    if (loadMoreBtn.disabled) {
+        loadMoreBtn.textContent = 'No More Events';
+    } else {
+        loadMoreBtn.textContent = 'Load More';
+    }
+}
+
+// Add event listener for the Load More button
+document.getElementById('loadMoreBtn').addEventListener('click', () => {
+    currentPage++;
+    updateTimeline(null, true);
+});
+
+async function initializeTimeline() {
+    const metrics = await fetchMetrics();
+    updateTimeline(metrics);
 }
