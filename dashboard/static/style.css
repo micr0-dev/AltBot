@@ -185,6 +185,7 @@ body {
     font-size: 2.5rem;
     font-weight: 700;
     background: var(--gradient);
+    background-clip: text;
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     line-height: 1;
