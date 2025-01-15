@@ -1,6 +1,21 @@
-# AltBot
+<div align="center">
+  <img src="assets/micr0-alty-banner.png" alt="A decorative banner featuring a repeating pattern of small purple robot icons against a light background, creating a retro-tech wallpaper effect">
 
-AltBot is an open-source accessibility bot designed to enhance the Fediverse by generating alt-text descriptions for images. This helps make content more accessible to users with visual impairments.
+  # AltBot アクセシビリティロボット
+  
+  *Making the Fediverse more inclusive, one image at a time*
+
+  [![Latest Release](https://img.shields.io/github/v/release/micr0-dev/AltBot)](https://github.com/micr0-dev/AltBot/releases)
+  [![Mastodon Follow](https://img.shields.io/mastodon/follow/113183205946060973?domain=fuzzies.wtf&style=social)](https://fuzzies.wtf/@altbot)
+  [![License: OWL](https://img.shields.io/badge/license-OWL-purple.svg)](https://owl-license.org/)
+  [![Go Version](https://img.shields.io/github/go-mod/go-version/micr0-dev/AltBot)](https://go.dev/)
+  ![Status](https://img.shields.io/badge/status-active-success)
+  ![Environment](https://img.shields.io/badge/environment-friendly-green)
+</div>
+
+## About
+
+AltBot is an open-source accessibility bot designed to enhance the Fediverse by generating alt-text descriptions for images, video, and audio. This helps make content more accessible to users with visual impairments.
 
 ## How It Works
 
@@ -8,8 +23,8 @@ AltBot listens for mentions and follows on Mastodon. When it detects a mention o
 
 ### Features
 
-- **Mention-Based Alt-Text Generation:** Mention @AltBot in a reply to any post containing an image, and AltBot will generate an alt-text description for it.
-- **Automatic Alt-Text for Followers:** Follow @AltBot, and it will monitor your posts. If you post an image without alt-text, AltBot will automatically generate one for you.
+- **Mention-Based Alt-Text Generation:** Mention @AltBot in a reply to any post containing an image, video, or audio, and AltBot will generate an alt-text description for it.
+- **Automatic Alt-Text for Followers:** Follow @AltBot, and it will monitor your posts. If you post an image, video, or audio without alt-text, AltBot will automatically generate one for you.
 - **Local LLM Support:** Use local LLMs via Ollama for generating alt-text descriptions.
 - **Consent Requests:** Ask for consent from the original poster before generating alt-text when mentioned by non-OP users.
 - **Configurable Settings:** Easily configure the bot using a TOML file.
