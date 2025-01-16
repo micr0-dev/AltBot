@@ -255,7 +255,6 @@ func main() {
 		case *mastodon.NotificationEvent:
 			switch e.Notification.Type {
 			case "mention": // Get the ID of the status being replied to
-				log.Printf("Received mention from: %s", e.Notification.Account.Acct)
 				if "@"+e.Notification.Account.Acct == config.RateLimit.AdminContactHandle {
 					handleAdminReply(c, e.Notification.Status, rateLimiter)
 				}
@@ -1187,8 +1186,8 @@ func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
 	defer rl.mu.Unlock()
 
 	isBanned := rl.IsShadowBanned(userID)
-	log.Printf("User %s is shadow banned: %v", userID, isBanned)
 	if isBanned {
+		log.Printf("User %s is shadow banned: %v", userID, isBanned)
 		return false
 	}
 
