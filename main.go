@@ -1,6 +1,7 @@
 package main
 
 import (
+	"AltBot/dashboard"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -36,7 +37,7 @@ import (
 
 // Version of the bot
 
-const Version = "1.4"
+const Version = "1.4.1"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -91,7 +92,9 @@ type Config struct {
 		Tips            []string `toml:"tips"`
 	} `toml:"weekly_summary"`
 	Metrics struct {
-		Enabled bool `toml:"enabled"`
+		Enabled          bool `toml:"enabled"`
+		DashboardEnabled bool `toml:"dashboard_enabled"`
+		DashboardPort    int  `toml:"dashboard_port"`
 	} `toml:"metrics"`
 	RateLimit struct {
 		MaxRequestsPerMinute           int    `toml:"max_requests_per_user_per_minute"`
@@ -245,6 +248,14 @@ func main() {
 	metricsManager.loadFromFile()
 
 	fmt.Printf("%s Metrics Collection: %v\n", getStatusSymbol(config.Metrics.Enabled), config.Metrics.Enabled)
+
+	if config.Metrics.DashboardEnabled {
+		dashboard.StartDashboard("metrics.json", config.Metrics.DashboardPort)
+		fmt.Printf("%s Metrics Dashboard: %s\n", getStatusSymbol(true), "http://localhost:"+strconv.Itoa(config.Metrics.DashboardPort))
+	} else {
+		fmt.Printf("%s Metrics Dashboard: %v\n", getStatusSymbol(false), config.Metrics.DashboardEnabled)
+	}
+
 	fmt.Println("\n-----------------------------------")
 
 	fmt.Println("Connected to streaming API. All systems operational. Waiting for mentions and follows...")
@@ -1291,6 +1302,7 @@ func handleAdminReply(c *mastodon.Client, reply *mastodon.Status, rl *RateLimite
 		userID := parts[2]
 		rl.UnbanAndWhitelistUser(userID)
 		log.Printf("Admin unbanned user %s based on reply.", userID)
+		metricsManager.logUnBan(string(userID))
 		_, err := c.PostStatus(ctx, &mastodon.Toot{
 			Status:      fmt.Sprintf("%s User %s has been unbanned and added to the whitelist.", config.RateLimit.AdminContactHandle, userID),
 			Visibility:  "direct",

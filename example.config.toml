@@ -55,6 +55,8 @@ admin_contact_handle = "@admin" # Fedi handle of the bot's administrator
 
 [metrics]
 enabled = true # Set to false to completely disable all metrics collection and logging
+dashboard_enabled = true # Set to false to disable the metrics dashboard
+dashboard_port = 8080 # Port for the metrics dashboard
 
 [weekly_summary]
 enabled = true # Enable or disable the weekly summary feature (disabling will prevent all built-in Logging as well)
