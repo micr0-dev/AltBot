@@ -52,7 +52,6 @@ new_account_period_days = 7 # How long to consider an account as "new" for rate 
 shadow_ban_threshold = 10 # Number of exceeded attempts before shadow banning
 admin_contact_handle = "@admin" # Fedi handle of the bot's administrator
 
-
 [metrics]
 enabled = true # Set to false to completely disable all metrics collection and logging
 dashboard_enabled = true # Set to false to disable the metrics dashboard
