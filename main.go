@@ -161,8 +161,6 @@ func main() {
 	fmt.Printf("%sAltBot%s v%s (%s)\n", Cyan, Reset, Version, config.LLM.Provider)
 	checkForUpdates()
 
-	fmt.Println("\nFeature Checklist:")
-
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
@@ -323,8 +321,6 @@ func main() {
 			log.Printf("Error event: %v", e.Error())
 		case *mastodon.DeleteEvent:
 			handleDeleteEvent(c, e.ID)
-		default:
-			log.Printf("Unhandled event type: %T", e)
 		}
 	}
 }
