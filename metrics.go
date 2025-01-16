@@ -108,6 +108,10 @@ func (mm *MetricsManager) logShadowBan(userID string) {
 	mm.logEvent(userID, "shadow_ban", nil)
 }
 
+func (mm *MetricsManager) logUnBan(userID string) {
+	mm.logEvent(userID, "un_ban", nil)
+}
+
 // logConsentRequest logs a consent request
 func (mm *MetricsManager) logConsentRequest(userID string, granted bool) {
 	details := map[string]interface{}{
