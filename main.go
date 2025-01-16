@@ -37,7 +37,7 @@ import (
 
 // Version of the bot
 
-const Version = "1.4"
+const Version = "1.4.1"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
