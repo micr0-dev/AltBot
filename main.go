@@ -1302,6 +1302,7 @@ func handleAdminReply(c *mastodon.Client, reply *mastodon.Status, rl *RateLimite
 		userID := parts[2]
 		rl.UnbanAndWhitelistUser(userID)
 		log.Printf("Admin unbanned user %s based on reply.", userID)
+		metricsManager.logUnBan(string(userID))
 		_, err := c.PostStatus(ctx, &mastodon.Toot{
 			Status:      fmt.Sprintf("%s User %s has been unbanned and added to the whitelist.", config.RateLimit.AdminContactHandle, userID),
 			Visibility:  "direct",
