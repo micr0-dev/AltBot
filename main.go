@@ -105,6 +105,10 @@ type Config struct {
 		ShadowBanThreshold             int    `toml:"shadow_ban_threshold"`
 		AdminContactHandle             string `toml:"admin_contact_handle"`
 	} `toml:"rate_limit"`
+	AltTextReminders struct {
+		Enabled      bool `toml:"enabled"`
+		ReminderTime int  `toml:"reminder_time"`
+	} `toml:"alt_text_reminders"`
 }
 
 const (
@@ -196,9 +200,18 @@ func main() {
 
 	if config.WeeklySummary.Enabled {
 		go startWeeklySummaryScheduler(c)
+		fmt.Printf("%s Weekly Summary: %vs %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.PostDay, config.WeeklySummary.PostTime)
+	} else {
+		fmt.Printf("%s Weekly Summary: %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.Enabled)
 	}
 
-	fmt.Printf("%s Weekly Summary: %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.Enabled)
+	if config.AltTextReminders.Enabled {
+		go checkAltTextPeriodically(c, 1*time.Minute, time.Duration(config.AltTextReminders.ReminderTime)*time.Minute)
+		fmt.Printf("%s Alt Text Reminders: %v mins\n", getStatusSymbol(config.AltTextReminders.Enabled), config.AltTextReminders.ReminderTime)
+
+	} else {
+		fmt.Printf("%s Alt Text Reminders: %v\n", getStatusSymbol(config.AltTextReminders.Enabled), config.AltTextReminders.Enabled)
+	}
 
 	// Initialize the rate limiter
 	rateLimiter = NewRateLimiter()
@@ -714,6 +727,10 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 
 		if err != nil {
 			log.Printf("Error posting reply: %v", err)
+		}
+
+		if config.AltTextReminders.Enabled {
+			queuePostForAltTextCheck(status, replyPost.Account.Acct)
 		}
 
 		// Track the reply with a timestamp
@@ -1496,4 +1513,71 @@ func fetchLatestVersion() string {
 	}
 
 	return release.TagName
+}
+
+// Check up on requests for alt text requests, to make sure people are adding them to their posts instead of just leaving them as a comment.
+
+type AltTextCheck struct {
+	PostID    mastodon.ID
+	UserID    string
+	Timestamp time.Time
+}
+
+var altTextChecks = make(map[mastodon.ID]AltTextCheck)
+
+func queuePostForAltTextCheck(post *mastodon.Status, userID string) {
+	altTextChecks[post.ID] = AltTextCheck{
+		PostID:    post.ID,
+		UserID:    userID,
+		Timestamp: time.Now(),
+	}
+}
+
+func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkTime time.Duration) {
+	for {
+		time.Sleep(interval)
+		now := time.Now()
+
+		for postID, check := range altTextChecks {
+			// Check if time has passed
+			if now.Sub(check.Timestamp) >= checkTime {
+				// Fetch post details
+				post, err := c.GetStatus(ctx, check.PostID)
+				if err != nil {
+					log.Printf("Error fetching post %s during alt-text check: %v", check.PostID, err)
+					continue
+				}
+
+				// Check if the post still lacks alt-text
+				missingAltText := false
+				for _, media := range post.MediaAttachments {
+					if media.Description == "" {
+						missingAltText = true
+						break
+					}
+				}
+
+				if missingAltText {
+					log.Printf("Notifying user %s about missing alt-text in post %s...", check.UserID, check.PostID)
+					notifyUserOfMissingAltText(c, post, check.UserID)
+				}
+
+				// Remove check entry after processing
+				delete(altTextChecks, postID)
+			}
+		}
+	}
+}
+
+func notifyUserOfMissingAltText(c *mastodon.Client, post *mastodon.Status, userID string) {
+	message := fmt.Sprintf("Hi @%s, please add alt-text to your images by editing your post. Alt-text in the comments isn't easily accessible to screen readers! Thank you!", userID)
+
+	_, err := c.PostStatus(ctx, &mastodon.Toot{
+		Status:      message,
+		InReplyToID: post.ID,
+		Visibility:  "direct",
+	})
+	if err != nil {
+		log.Printf("Error notifying user %s about missing alt-text: %v", userID, err)
+	}
 }

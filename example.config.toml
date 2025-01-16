@@ -57,6 +57,10 @@ enabled = true # Set to false to completely disable all metrics collection and l
 dashboard_enabled = true # Set to false to disable the metrics dashboard
 dashboard_port = 8080 # Port for the metrics dashboard
 
+[alt_text_reminders]
+enabled = true # Enable or disable the alt-text reminder feature
+reminder_time = 10 # How long to wait before reminding users to add alt-text to their images (in minutes) if they haven't already
+
 [weekly_summary]
 enabled = true # Enable or disable the weekly summary feature (disabling will prevent all built-in Logging as well)
 post_day = "Sunday" # Day of the week to post the summary
