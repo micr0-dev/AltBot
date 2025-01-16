@@ -2,6 +2,7 @@ package main
 
 import (
 	"AltBot/dashboard"
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
@@ -15,6 +16,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -123,6 +125,7 @@ const (
 	White  = "\033[37m"
 )
 
+var defaultConfig Config
 var config Config
 var model *genai.GenerativeModel
 var client *genai.Client
@@ -137,10 +140,29 @@ var rateLimiter *RateLimiter
 var metricsManager *MetricsManager
 
 func main() {
-	// Load configuration from TOML file
+
+	// Load default configuration from example.config.toml
+	if _, err := toml.DecodeFile("example.config.toml", &defaultConfig); err != nil {
+		log.Fatalf("Error loading default config from example.config.toml: %v", err)
+	}
+
+	// Check if config.toml exists, if not, create it by copying example.config.toml
+	if _, err := os.Stat("config.toml"); os.IsNotExist(err) {
+		if err := copyConfig("example.config.toml", "config.toml", 5); err != nil {
+			log.Fatalf("Error creating default config.toml: %v", err)
+		}
+
+		log.Println("config.toml not found. Created default from example.config.toml\nPlease configure it and restart the bot.")
+		os.Exit(0)
+	}
+
+	// Load configuration from config.toml
 	if _, err := toml.DecodeFile("config.toml", &config); err != nil {
 		log.Fatalf("Error loading config.toml: %v", err)
 	}
+
+	// Compare config with defaultConfig and print warnings or custom settings
+	customSettingsCount := compareConfigs(defaultConfig, config)
 
 	if config.Server.MastodonServer == "https://mastodon.example.com" {
 		log.Fatal("Please configure the Mastodon server in config.toml")
@@ -180,6 +202,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error fetching bot account ID: %v", err)
 	}
+
+	fmt.Printf("%s %d Custom settings loaded\n\n", getStatusSymbol(customSettingsCount > 0), customSettingsCount)
 
 	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
 	fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(videoAudioProcessingCapability), videoAudioProcessingCapability)
@@ -1579,5 +1603,101 @@ func notifyUserOfMissingAltText(c *mastodon.Client, post *mastodon.Status, userI
 	})
 	if err != nil {
 		log.Printf("Error notifying user %s about missing alt-text: %v", userID, err)
+	}
+}
+
+// copyConfig copies a configuration file from src to dest, removing the first `skipLines` lines from src.
+func copyConfig(src, dest string, skipLines int) error {
+	// Open the source file for reading
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("error opening source file for reading: %w", err)
+	}
+	defer sourceFile.Close()
+
+	// Create the destination file for writing
+	destFile, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("error creating destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	scanner := bufio.NewScanner(sourceFile)
+	writer := bufio.NewWriter(destFile)
+
+	// Skip the specified number of lines
+	for i := 0; i < skipLines; i++ {
+		if !scanner.Scan() {
+			// If EOF is reached before skipping all lines, no copying is needed
+			return nil
+		}
+	}
+
+	// Write the rest of the file to the destination file
+	for scanner.Scan() {
+		_, err := writer.WriteString(scanner.Text() + "\n")
+		if err != nil {
+			return fmt.Errorf("error writing to destination file: %w", err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading from source file: %w", err)
+	}
+
+	// Flush the writer to ensure all content is written
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("error flushing writer: %w", err)
+	}
+
+	return nil
+}
+
+func compareConfigs(defaultConfig, userConfig Config) int {
+	customCount := 0
+	warnings := []string{}
+
+	checkDifferences(reflect.ValueOf(defaultConfig), reflect.ValueOf(userConfig), "", &customCount, &warnings)
+
+	if len(warnings) > 0 {
+		fmt.Printf("Warnings:\n%s\n", warnings)
+	}
+
+	return customCount
+}
+
+func checkDifferences(d, u reflect.Value, prefix string, customCount *int, warnings *[]string) {
+	dKind, uKind := d.Kind(), u.Kind()
+
+	if dKind != uKind {
+		*warnings = append(*warnings, fmt.Sprintf("Type mismatch at %s: default is %s, user is %s", prefix, dKind, uKind))
+		return
+	}
+
+	switch dKind {
+	case reflect.Struct:
+		for i := 0; i < d.NumField(); i++ {
+			fieldName := d.Type().Field(i).Name
+			checkDifferences(d.Field(i), u.Field(i), prefix+"."+fieldName, customCount, warnings)
+		}
+	case reflect.Map:
+		for _, key := range d.MapKeys() {
+			du := d.MapIndex(key)
+			uu := u.MapIndex(key)
+			checkDifferences(du, uu, prefix+"."+fmt.Sprint(key), customCount, warnings)
+		}
+	case reflect.Slice:
+		if d.Len() != u.Len() {
+			*customCount++
+		} else {
+			for i := 0; i < d.Len(); i++ {
+				// Compare elements of the slice
+				checkDifferences(d.Index(i), u.Index(i), fmt.Sprintf("%s[%d]", prefix, i), customCount, warnings)
+			}
+		}
+	default:
+		if !reflect.DeepEqual(d.Interface(), u.Interface()) {
+			*customCount++
+		}
 	}
 }
