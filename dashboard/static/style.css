@@ -1,4 +1,3 @@
-/* dashboard/static/css/style.css */
 :root {
     /* Light theme */
     --bg-primary: #ffffff;
@@ -528,14 +527,6 @@ body {
     padding: 0 1.5rem;
 }
 
-/* Mobile adjustments */
-@media (max-width: 768px) {
-    .status-header {
-        height: 150px;
-        /* Smaller height on mobile */
-    }
-}
-
 body {
     margin: 0;
     padding: 0;
@@ -553,4 +544,149 @@ body {
     border-radius: 1rem 1rem 0 0;
     padding-top: 1rem;
     z-index: 2;
+}
+
+.status-header {
+    position: relative;
+    height: 400px;
+    width: 100%;
+    margin-bottom: 0;
+    padding: 1rem;
+    overflow: hidden;
+}
+
+.banner-image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    position: absolute;
+    top: 0;
+    left: 0;
+}
+
+.banner-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0);
+    z-index: 2;
+}
+
+.banner-content {
+    position: relative;
+    z-index: 3;
+    height: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 0rem;
+}
+
+.social-links {
+    display: flex;
+    gap: 1rem;
+    margin-left: auto;
+}
+
+.social-button {
+    display: flex;
+    align-items: center;
+    gap: 0.5rem;
+    background: rgba(30, 41, 59, 0.6);
+    backdrop-filter: blur(8px);
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    color: white;
+    text-decoration: none;
+    font-size: 0.9rem;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.social-button:hover {
+    background: rgba(30, 41, 59, 0.8);
+    transform: translateY(-2px);
+}
+
+.social-icon {
+    width: 1.2rem;
+    height: 1.2rem;
+}
+
+.system-status {
+    background: rgba(30, 41, 59, 0.6);
+    backdrop-filter: blur(8px);
+    padding: 0.75rem 1.5rem;
+    border-radius: 9999px;
+    color: white;
+    width: fit-content;
+    margin-top: 1rem;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.2), 0 2px 4px -2px rgba(0, 0, 0, 0.2);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.container {
+    max-width: 1280px;
+    margin: 0 auto;
+    padding: 0 1.5rem;
+}
+
+@media (max-width: 768px) {
+    .status-header {
+        height: auto;
+        padding: 0;
+        margin-bottom: 0rem;
+        background: var(--bg-primary);
+    }
+
+    .status-header .container {
+        padding-bottom: 0;
+    }
+
+    .banner-image {
+        height: 200px;
+    }
+
+    .banner-content {
+        flex-direction: column;
+        align-items: stretch;
+        padding: 0;
+        padding-top: 220px;
+
+    }
+
+    .system-status {
+        background: var(--card-bg);
+        backdrop-filter: none;
+        border: 1px solid var(--border);
+        margin: 0;
+        width: 100%;
+        text-align: center;
+        color: var(--text-primary);
+    }
+
+    .social-links {
+        display: flex;
+        gap: 0.5rem;
+        margin-top: 0.5rem;
+        margin-left: 0;
+    }
+
+    .social-button {
+        flex: 1;
+        background: var(--card-bg);
+        backdrop-filter: none;
+        border: 1px solid var(--border);
+        color: var(--text-primary);
+        justify-content: center;
+    }
+
+    .main-content {
+        margin-top: -1.5rem;
+        border-radius: 0;
+        padding-top: 0;
+    }
 }
