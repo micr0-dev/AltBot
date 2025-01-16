@@ -101,13 +101,13 @@ func getTopUsers(userScores map[string]int) []string {
 }
 
 func startWeeklySummaryScheduler(c *mastodon.Client) {
-	fmt.Println("Weekly summary scheduler started")
 	for {
 		now := time.Now()
 		// Calculate the next scheduled time based on config
 		nextScheduledTime := calculateNextScheduledTime(now)
 		durationUntilNext := nextScheduledTime.Sub(now)
 
+		time.Sleep(1 * time.Second)
 		fmt.Printf("Next weekly summary scheduled for %s\n", nextScheduledTime.Format("2006-01-02 15:04:05"))
 
 		// Sleep until the next scheduled time
