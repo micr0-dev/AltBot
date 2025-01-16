@@ -13,71 +13,73 @@
 
 <body>
     <div class="status-header">
+        <img src="/static/banner.png" alt="AltBot Banner" class="banner-image">
+        <div class="banner-overlay"></div>
         <div class="container">
-            <h1>AltBot Status</h1>
             <div class="system-status">
                 <div class="status-indicator operational"></div>
                 <span>All Systems Operational</span>
             </div>
-            <p class="last-updated">Last updated: <span id="lastUpdated"></span></p>
         </div>
     </div>
 
-    <div class="container">
-        <section class="quick-stats">
-            <h2 class="section-title">Current Statistics</h2>
-            <div class="stats-grid">
-                <div class="stat-card">
-                    <div class="stat-value" id="totalRequests">-</div>
-                    <div class="stat-label">Total Requests</div>
+    <div class="main-content">
+        <div class="container">
+            <section class="quick-stats">
+                <h2 class="section-title">Current Statistics</h2>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalRequests">-</div>
+                        <div class="stat-label">Total Requests</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="totalUsers">-</div>
+                        <div class="stat-label">Unique Users</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="avgResponseTime">-</div>
+                        <div class="stat-label">Avg Response Time</div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-value" id="rateLimits">-</div>
+                        <div class="stat-label">Rate Limits</div>
+                    </div>
                 </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="totalUsers">-</div>
-                    <div class="stat-label">Unique Users</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="avgResponseTime">-</div>
-                    <div class="stat-label">Avg Response Time</div>
-                </div>
-                <div class="stat-card">
-                    <div class="stat-value" id="rateLimits">-</div>
-                    <div class="stat-label">Rate Limits</div>
-                </div>
-            </div>
-        </section>
+            </section>
 
-        <section class="detailed-analytics">
-            <h2 class="section-title">Detailed Analytics</h2>
-            <div class="analytics-container">
-                <div class="chart-card">
-                    <h3>Activity & Response Times</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="combinedChart" width="600" height="300"></canvas>
+            <section class="detailed-analytics">
+                <h2 class="section-title">Detailed Analytics</h2>
+                <div class="analytics-container">
+                    <div class="chart-card">
+                        <h3>Activity & Response Times</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="combinedChart" width="600" height="300"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Media Types</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="mediaTypePie" width="300" height="300"></canvas>
+                        </div>
+                    </div>
+                    <div class="chart-card">
+                        <h3>Event Distribution</h3>
+                        <div class="chart-wrapper">
+                            <canvas id="eventsPie" width="300" height="300"></canvas>
+                        </div>
                     </div>
                 </div>
-                <div class="chart-card">
-                    <h3>Media Types</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="mediaTypePie" width="300" height="300"></canvas>
-                    </div>
-                </div>
-                <div class="chart-card">
-                    <h3>Event Distribution</h3>
-                    <div class="chart-wrapper">
-                        <canvas id="eventsPie" width="300" height="300"></canvas>
-                    </div>
-                </div>
-            </div>
-        </section>
+            </section>
 
-        <section class="event-timeline">
-            <h2 class="section-title">Event Timeline</h2>
-            <div class="timeline" id="timeline">
-            </div>
-            <div class="load-more-container">
-                <button id="loadMoreBtn" class="load-more-btn">Load More</button>
-            </div>
-        </section>
+            <section class="event-timeline">
+                <h2 class="section-title">Event Timeline</h2>
+                <div class="timeline" id="timeline">
+                </div>
+                <div class="load-more-container">
+                    <button id="loadMoreBtn" class="load-more-btn">Load More</button>
+                </div>
+            </section>
+        </div>
         <script src="/static/charts.js"></script>
 </body>
 

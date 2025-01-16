@@ -260,9 +260,6 @@ function updateCharts(metrics) {
     document.getElementById('avgResponseTime').textContent = `${metrics.avgResponseTime}ms`;
     document.getElementById('rateLimits').textContent =
         metrics.eventCounts.rate_limit_hit || 0;
-
-    document.getElementById('lastUpdated').textContent =
-        new Date().toLocaleString();
 }
 
 // Add dark mode listener
