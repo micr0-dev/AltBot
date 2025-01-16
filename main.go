@@ -266,6 +266,10 @@ func main() {
 		case *mastodon.NotificationEvent:
 			switch e.Notification.Type {
 			case "mention": // Get the ID of the status being replied to
+				if "@"+e.Notification.Account.Acct == config.RateLimit.AdminContactHandle {
+					handleAdminReply(c, e.Notification.Status, rateLimiter)
+				}
+
 				if parentStatusRef := e.Notification.Status.InReplyToID; parentStatusRef != nil {
 					var parentStatusID mastodon.ID
 
@@ -1080,6 +1084,9 @@ func postProcessAltText(altText string) string {
 	// Use the regex to replace matches with an empty string
 	altText = re.ReplaceAllString(altText, "")
 
+	// Remove any mentions
+	altText = strings.ReplaceAll(altText, "@", "[@]")
+
 	// Remove any leading or trailing whitespace
 	altText = strings.TrimSpace(altText)
 
@@ -1151,6 +1158,7 @@ type RateLimiter struct {
 	mu             sync.Mutex
 	ExceededCounts map[string]int  `json:"exceeded_counts"`
 	ShadowBanned   map[string]bool `json:"shadow_banned"`
+	Whitelist      map[string]bool `json:"whitelist"`
 }
 
 // NewRateLimiter creates a new RateLimiter
@@ -1161,6 +1169,7 @@ func NewRateLimiter() *RateLimiter {
 		AccountAges:    make(map[string]time.Time),
 		ExceededCounts: make(map[string]int),
 		ShadowBanned:   make(map[string]bool),
+		Whitelist:      make(map[string]bool),
 	}
 }
 
@@ -1188,8 +1197,8 @@ func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
 	defer rl.mu.Unlock()
 
 	isBanned := rl.IsShadowBanned(userID)
-	log.Printf("User %s is shadow banned: %v", userID, isBanned)
 	if isBanned {
+		log.Printf("User %s is shadow banned: %v", userID, isBanned)
 		return false
 	}
 
@@ -1238,6 +1247,10 @@ func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
 }
 
 func (rl *RateLimiter) ShadowBanUser(c *mastodon.Client, userID string) {
+	if rl.Whitelist[userID] {
+		return
+	}
+
 	log.Printf("Get shadow banned noob %s", userID)
 	rl.ShadowBanned[userID] = true
 	metricsManager.logShadowBan(string(userID))
@@ -1249,7 +1262,6 @@ func (rl *RateLimiter) IsShadowBanned(userID string) bool {
 }
 
 func (rl *RateLimiter) notifyAdmin(c *mastodon.Client, userID string) {
-	//Look up the account for the name of the user banned
 	account, err := c.GetAccount(ctx, mastodon.ID(userID))
 	if err != nil {
 		log.Printf("Error fetching account: %v", err)
@@ -1257,13 +1269,47 @@ func (rl *RateLimiter) notifyAdmin(c *mastodon.Client, userID string) {
 	}
 	name := account.Acct
 
-	message := fmt.Sprintf("%s User %s has been shadow banned for exceeding rate limits. Please investigate.", config.RateLimit.AdminContactHandle, name)
+	message := fmt.Sprintf("%s User %s has been shadow banned for exceeding rate limits.\nTo unban, reply with 'unban %s'.", config.RateLimit.AdminContactHandle, name, userID)
 	_, err = c.PostStatus(ctx, &mastodon.Toot{
 		Status:     message,
 		Visibility: "direct",
 	})
 	if err != nil {
 		log.Printf("Error posting shadow ban notification: %v", err)
+	}
+}
+
+func (rl *RateLimiter) UnbanAndWhitelistUser(userID string) {
+	rl.mu.Lock()
+	defer rl.mu.Unlock()
+
+	delete(rl.ShadowBanned, userID)
+	rl.Whitelist[userID] = true
+
+	log.Printf("User %s has been unbanned and added to the whitelist.", userID)
+
+	if err := rateLimiter.SaveToFile("ratelimiter.json"); err != nil {
+		log.Printf("Error saving rate limiter state: %v", err)
+	}
+}
+
+func handleAdminReply(c *mastodon.Client, reply *mastodon.Status, rl *RateLimiter) {
+	content := stripHTMLTags(reply.Content)
+	content = strings.ToLower(content)
+
+	parts := strings.Fields(content)
+	if len(parts) == 3 && parts[1] == "unban" {
+		userID := parts[2]
+		rl.UnbanAndWhitelistUser(userID)
+		log.Printf("Admin unbanned user %s based on reply.", userID)
+		_, err := c.PostStatus(ctx, &mastodon.Toot{
+			Status:      fmt.Sprintf("%s User %s has been unbanned and added to the whitelist.", config.RateLimit.AdminContactHandle, userID),
+			Visibility:  "direct",
+			InReplyToID: reply.ID,
+		})
+		if err != nil {
+			log.Printf("Error sending confirmation of unban: %v", err)
+		}
 	}
 }
 
