@@ -52,7 +52,7 @@ Alt-texts are generated using a Large Language Model (LLM). While we strive for 
 
     The setup wizard will guide you through configuring the essential values required for the bot, including:
     - Your Mastodon server URL, client secret, access token, and bot username.
-    - The admin contact handle for shadow ban notifications.
+    - The admin contact handle for moderation notifications.
     - Enabling optional features like metrics and alt-text reminders.
     
     Alternatively, copy the example configuration file and edit it manually:
