@@ -2,9 +2,11 @@ package main
 
 import (
 	"AltBot/dashboard"
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"image"
 	"image/gif"
@@ -15,6 +17,7 @@ import (
 	"net/http"
 	"os"
 	"os/exec"
+	"reflect"
 	"regexp"
 	"strconv"
 	"strings"
@@ -37,7 +40,7 @@ import (
 
 // Version of the bot
 
-const Version = "1.4.1"
+const Version = "1.4.2"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -97,6 +100,7 @@ type Config struct {
 		DashboardPort    int  `toml:"dashboard_port"`
 	} `toml:"metrics"`
 	RateLimit struct {
+		Enabled                        bool   `toml:"enabled"`
 		MaxRequestsPerMinute           int    `toml:"max_requests_per_user_per_minute"`
 		MaxRequestsPerHour             int    `toml:"max_requests_per_user_per_hour"`
 		NewAccountMaxRequestsPerMinute int    `toml:"new_account_max_requests_per_minute"`
@@ -105,6 +109,10 @@ type Config struct {
 		ShadowBanThreshold             int    `toml:"shadow_ban_threshold"`
 		AdminContactHandle             string `toml:"admin_contact_handle"`
 	} `toml:"rate_limit"`
+	AltTextReminders struct {
+		Enabled      bool `toml:"enabled"`
+		ReminderTime int  `toml:"reminder_time"`
+	} `toml:"alt_text_reminders"`
 }
 
 const (
@@ -119,6 +127,7 @@ const (
 	White  = "\033[37m"
 )
 
+var defaultConfig Config
 var config Config
 var model *genai.GenerativeModel
 var client *genai.Client
@@ -133,10 +142,35 @@ var rateLimiter *RateLimiter
 var metricsManager *MetricsManager
 
 func main() {
-	// Load configuration from TOML file
+	setupFlag := flag.Bool("setup", false, "Run the setup wizard")
+	flag.Parse()
+
+	// Load default configuration from example.config.toml
+	if _, err := toml.DecodeFile("example.config.toml", &defaultConfig); err != nil {
+		log.Fatalf("Error loading default config from example.config.toml: %v", err)
+	}
+
+	// Check if config.toml exists, if not, create it by copying example.config.toml
+	if _, err := os.Stat("config.toml"); os.IsNotExist(err) {
+		if err := copyConfig("example.config.toml", "config.toml", 5); err != nil {
+			log.Fatalf("Error creating default config.toml: %v", err)
+		}
+
+		log.Println("config.toml not found. Running setup wizard...")
+		*setupFlag = true
+	}
+
+	if *setupFlag {
+		runSetupWizard("config.toml")
+	}
+
+	// Load configuration from config.toml
 	if _, err := toml.DecodeFile("config.toml", &config); err != nil {
 		log.Fatalf("Error loading config.toml: %v", err)
 	}
+
+	// Compare config with defaultConfig and print warnings or custom settings
+	customSettingsCount := compareConfigs(defaultConfig, config)
 
 	if config.Server.MastodonServer == "https://mastodon.example.com" {
 		log.Fatal("Please configure the Mastodon server in config.toml")
@@ -161,8 +195,6 @@ func main() {
 	fmt.Printf("%sAltBot%s v%s (%s)\n", Cyan, Reset, Version, config.LLM.Provider)
 	checkForUpdates()
 
-	fmt.Println("\nFeature Checklist:")
-
 	var cancel context.CancelFunc
 	ctx, cancel = context.WithCancel(context.Background())
 	defer cancel()
@@ -178,6 +210,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("Error fetching bot account ID: %v", err)
 	}
+
+	fmt.Printf("%s %d Custom settings loaded\n\n", getStatusSymbol(customSettingsCount > 0), customSettingsCount)
 
 	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
 	fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(videoAudioProcessingCapability), videoAudioProcessingCapability)
@@ -198,33 +232,44 @@ func main() {
 
 	if config.WeeklySummary.Enabled {
 		go startWeeklySummaryScheduler(c)
+		fmt.Printf("%s Weekly Summary: %vs %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.PostDay, config.WeeklySummary.PostTime)
+	} else {
+		fmt.Printf("%s Weekly Summary: %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.Enabled)
 	}
 
-	fmt.Printf("%s Weekly Summary: %v\n", getStatusSymbol(config.WeeklySummary.Enabled), config.WeeklySummary.Enabled)
+	if config.AltTextReminders.Enabled {
+		go checkAltTextPeriodically(c, 1*time.Minute, time.Duration(config.AltTextReminders.ReminderTime)*time.Minute)
+		fmt.Printf("%s Alt Text Reminders: %v mins\n", getStatusSymbol(config.AltTextReminders.Enabled), config.AltTextReminders.ReminderTime)
+
+	} else {
+		fmt.Printf("%s Alt Text Reminders: %v\n", getStatusSymbol(config.AltTextReminders.Enabled), config.AltTextReminders.Enabled)
+	}
 
 	// Initialize the rate limiter
 	rateLimiter = NewRateLimiter()
 
-	// Load rate limiter state from file
-	if err := rateLimiter.LoadFromFile("ratelimiter.json"); err != nil {
-		log.Fatalf("Error loading rate limiter state: %v", err)
+	if config.RateLimit.Enabled {
+		// Load rate limiter state from file
+		if err := rateLimiter.LoadFromFile("ratelimiter.json"); err != nil {
+			log.Fatalf("Error loading rate limiter state: %v", err)
+		}
+
+		// Reset minute counts every minute
+		go func() {
+			for {
+				time.Sleep(1 * time.Minute)
+				rateLimiter.ResetMinuteCounts()
+			}
+		}()
+
+		// Reset hour counts every hour
+		go func() {
+			for {
+				time.Sleep(1 * time.Hour)
+				rateLimiter.ResetHourCounts()
+			}
+		}()
 	}
-
-	// Reset minute counts every minute
-	go func() {
-		for {
-			time.Sleep(1 * time.Minute)
-			rateLimiter.ResetMinuteCounts()
-		}
-	}()
-
-	// Reset hour counts every hour
-	go func() {
-		for {
-			time.Sleep(1 * time.Hour)
-			rateLimiter.ResetHourCounts()
-		}
-	}()
 
 	// Start a goroutine for periodic cleanup of old reply entries
 	go cleanupOldEntries()
@@ -323,8 +368,6 @@ func main() {
 			log.Printf("Error event: %v", e.Error())
 		case *mastodon.DeleteEvent:
 			handleDeleteEvent(c, e.ID)
-		default:
-			log.Printf("Unhandled event type: %T", e)
 		}
 	}
 }
@@ -718,6 +761,10 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 
 		if err != nil {
 			log.Printf("Error posting reply: %v", err)
+		}
+
+		if config.AltTextReminders.Enabled {
+			queuePostForAltTextCheck(status, replyPost.Account.Acct)
 		}
 
 		// Track the reply with a timestamp
@@ -1193,6 +1240,10 @@ func (rl *RateLimiter) IsNewAccount(c *mastodon.Client, userID string) bool {
 
 // Increment increments the request count for a user and checks limits
 func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
+	if !config.RateLimit.Enabled {
+		return true
+	}
+
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
@@ -1500,4 +1551,194 @@ func fetchLatestVersion() string {
 	}
 
 	return release.TagName
+}
+
+// Check up on requests for alt text requests, to make sure people are adding them to their posts instead of just leaving them as a comment.
+
+type AltTextCheck struct {
+	PostID    mastodon.ID
+	UserID    string
+	Timestamp time.Time
+}
+
+var altTextChecks = make(map[mastodon.ID]AltTextCheck)
+
+type AltTextReminderTracker struct {
+	LastReminded map[string]time.Time
+	mu           sync.Mutex
+}
+
+var altTextReminderTracker = AltTextReminderTracker{
+	LastReminded: make(map[string]time.Time),
+}
+
+func shouldSendReminder(userID string) bool {
+	altTextReminderTracker.mu.Lock()
+	defer altTextReminderTracker.mu.Unlock()
+
+	lastReminded, exists := altTextReminderTracker.LastReminded[userID]
+
+	if !exists || time.Since(lastReminded) >= 24*time.Hour {
+		altTextReminderTracker.LastReminded[userID] = time.Now()
+		return true
+	}
+
+	return false
+}
+
+func queuePostForAltTextCheck(post *mastodon.Status, userID string) {
+	altTextChecks[post.ID] = AltTextCheck{
+		PostID:    post.ID,
+		UserID:    userID,
+		Timestamp: time.Now(),
+	}
+}
+
+func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkTime time.Duration) {
+	for {
+		time.Sleep(interval)
+		now := time.Now()
+
+		for postID, check := range altTextChecks {
+			// Check if time has passed
+			if now.Sub(check.Timestamp) >= checkTime {
+				// Fetch post details
+				post, err := c.GetStatus(ctx, check.PostID)
+				if err != nil {
+					log.Printf("Error fetching post %s during alt-text check: %v", check.PostID, err)
+					continue
+				}
+
+				// Check if the post still lacks alt-text
+				missingAltText := false
+				for _, media := range post.MediaAttachments {
+					if media.Description == "" {
+						missingAltText = true
+						break
+					}
+				}
+
+				if missingAltText {
+					log.Printf("Notifying user %s about missing alt-text in post %s...", check.UserID, check.PostID)
+					metricsManager.logMissingAltText(string(check.UserID))
+					if shouldSendReminder(check.UserID) {
+						notifyUserOfMissingAltText(c, post, check.UserID)
+						metricsManager.logAltTextReminderSent(string(check.UserID))
+					}
+				}
+
+				// Remove check entry after processing
+				delete(altTextChecks, postID)
+			}
+		}
+	}
+}
+
+func notifyUserOfMissingAltText(c *mastodon.Client, post *mastodon.Status, userID string) {
+	message := fmt.Sprintf(getLocalizedString(post.Language, "altTextReminder", "response"), userID)
+
+	_, err := c.PostStatus(ctx, &mastodon.Toot{
+		Status:      message,
+		InReplyToID: post.ID,
+		Visibility:  "direct",
+	})
+	if err != nil {
+		log.Printf("Error notifying user %s about missing alt-text: %v", userID, err)
+	}
+}
+
+// copyConfig copies a configuration file from src to dest, removing the first `skipLines` lines from src.
+func copyConfig(src, dest string, skipLines int) error {
+	// Open the source file for reading
+	sourceFile, err := os.Open(src)
+	if err != nil {
+		return fmt.Errorf("error opening source file for reading: %w", err)
+	}
+	defer sourceFile.Close()
+
+	// Create the destination file for writing
+	destFile, err := os.Create(dest)
+	if err != nil {
+		return fmt.Errorf("error creating destination file: %w", err)
+	}
+	defer destFile.Close()
+
+	scanner := bufio.NewScanner(sourceFile)
+	writer := bufio.NewWriter(destFile)
+
+	// Skip the specified number of lines
+	for i := 0; i < skipLines; i++ {
+		if !scanner.Scan() {
+			// If EOF is reached before skipping all lines, no copying is needed
+			return nil
+		}
+	}
+
+	// Write the rest of the file to the destination file
+	for scanner.Scan() {
+		_, err := writer.WriteString(scanner.Text() + "\n")
+		if err != nil {
+			return fmt.Errorf("error writing to destination file: %w", err)
+		}
+	}
+
+	if err := scanner.Err(); err != nil {
+		return fmt.Errorf("error reading from source file: %w", err)
+	}
+
+	// Flush the writer to ensure all content is written
+	if err := writer.Flush(); err != nil {
+		return fmt.Errorf("error flushing writer: %w", err)
+	}
+
+	return nil
+}
+
+func compareConfigs(defaultConfig, userConfig Config) int {
+	customCount := 0
+	warnings := []string{}
+
+	checkDifferences(reflect.ValueOf(defaultConfig), reflect.ValueOf(userConfig), "", &customCount, &warnings)
+
+	if len(warnings) > 0 {
+		fmt.Printf("Warnings:\n%s\n", warnings)
+	}
+
+	return customCount
+}
+
+func checkDifferences(d, u reflect.Value, prefix string, customCount *int, warnings *[]string) {
+	dKind, uKind := d.Kind(), u.Kind()
+
+	if dKind != uKind {
+		*warnings = append(*warnings, fmt.Sprintf("Type mismatch at %s: default is %s, user is %s", prefix, dKind, uKind))
+		return
+	}
+
+	switch dKind {
+	case reflect.Struct:
+		for i := 0; i < d.NumField(); i++ {
+			fieldName := d.Type().Field(i).Name
+			checkDifferences(d.Field(i), u.Field(i), prefix+"."+fieldName, customCount, warnings)
+		}
+	case reflect.Map:
+		for _, key := range d.MapKeys() {
+			du := d.MapIndex(key)
+			uu := u.MapIndex(key)
+			checkDifferences(du, uu, prefix+"."+fmt.Sprint(key), customCount, warnings)
+		}
+	case reflect.Slice:
+		if d.Len() != u.Len() {
+			*customCount++
+		} else {
+			for i := 0; i < d.Len(); i++ {
+				// Compare elements of the slice
+				checkDifferences(d.Index(i), u.Index(i), fmt.Sprintf("%s[%d]", prefix, i), customCount, warnings)
+			}
+		}
+	default:
+		if !reflect.DeepEqual(d.Interface(), u.Interface()) {
+			*customCount++
+		}
+	}
 }

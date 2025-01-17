@@ -112,6 +112,18 @@ func (mm *MetricsManager) logUnBan(userID string) {
 	mm.logEvent(userID, "un_ban", nil)
 }
 
+func (mm *MetricsManager) logWeeklySummary(userID string) {
+	mm.logEvent(userID, "weekly_summary", nil)
+}
+
+func (mm *MetricsManager) logMissingAltText(userID string) {
+	mm.logEvent(userID, "missing_alt_text", nil)
+}
+
+func (mm *MetricsManager) logAltTextReminderSent(userID string) {
+	mm.logEvent(userID, "alt_text_reminder_sent", nil)
+}
+
 // logConsentRequest logs a consent request
 func (mm *MetricsManager) logConsentRequest(userID string, granted bool) {
 	details := map[string]interface{}{

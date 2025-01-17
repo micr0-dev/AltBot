@@ -45,65 +45,22 @@ Alt-texts are generated using a Large Language Model (LLM). While we strive for 
     cd Altbot
     ```
 
-2. Copy the example configuration file and edit it:
+2. Run it:
+    ```sh
+    go run main.go
+    ```
+
+    The setup wizard will guide you through configuring the essential values required for the bot, including:
+    - Your Mastodon server URL, client secret, access token, and bot username.
+    - The admin contact handle for moderation notifications.
+    - Enabling optional features like metrics and alt-text reminders.
+    
+    Alternatively, copy the example configuration file and edit it manually:
     ```sh
     cp example.config.toml config.toml
     ```
 
-    Open `config.toml` in your favorite text editor and update the values as needed. Here is an example of what the file looks like:
-
-    ```toml
-    [server]
-    mastodon_server = "https://mastodon.example.com" # Your Mastodon server URL
-    client_secret = "your_client_secret"             # Your Mastodon App client secret
-    access_token = "your_access_token"               # Your Mastodon App access token
-    username = "your_bot_username"                   # Your Mastodon bot's username
-
-    [llm]
-    provider = "gemini"         # or "ollama"
-    ollama_model = "llava-phi3"
-
-    [gemini]
-    api_key = "your_gemini_api_key" # Replace with your Gemini API key, if you don't have one, you can get it from https://aistudio.google.com/app/apikey
-    model = "gemini-1.5-flash"      # or "gemini-1.5-pro" Note: "gemini-1.5-pro" allows for only 2 Requests per Minute while "gemini-1.5-flash" allows for 15 Requests per Minute
-    temperature = 0.7
-    top_k = 1
-    # Thresholds for the content moderation, setting them to another value than "none" will enable the content moderation may brake some responses
-    # Can be set to "none", "low", "medium", "high"
-    harassment_threshold = "none"
-    hate_speech_threshold = "none"
-    sexually_explicit_threshold = "none"
-    dangerous_content_threshold = "none"
-
-    [localization]
-    # Default language for the bot
-    default_language = "en"
-
-    [dni]
-    # List of profile tags that will make the bot ignore the user
-    tags = ["#nobot", "#noai", "#nollm"]
-    # Should the bot ignore other automated accounts
-    ignore_bots = true
-
-    [image_processing]
-    # Greater values may break the image processing due to having a size greater than the maximum allowed by the API
-    downscale_width = 800
-
-    [behavior]
-    # Maximum visibility of the replies to the bot, can be "public", "unlisted", "private" or "direct"
-    reply_visibility = "unlisted"
-    # Follow back new followers
-    follow_back = true
-    # Ask for consent when mentioned by none OP users
-    ask_for_consent = true
-    ```
-
-3. Install dependencies:
-    ```sh
-    go mod tidy
-    ```
-
-4. Run the bot:
+3. Run the bot:
     ```sh
     go run main.go
     ```
