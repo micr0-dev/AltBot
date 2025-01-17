@@ -1563,6 +1563,29 @@ type AltTextCheck struct {
 
 var altTextChecks = make(map[mastodon.ID]AltTextCheck)
 
+type AltTextReminderTracker struct {
+	LastReminded map[string]time.Time
+	mu           sync.Mutex
+}
+
+var altTextReminderTracker = AltTextReminderTracker{
+	LastReminded: make(map[string]time.Time),
+}
+
+func shouldSendReminder(userID string) bool {
+	altTextReminderTracker.mu.Lock()
+	defer altTextReminderTracker.mu.Unlock()
+
+	lastReminded, exists := altTextReminderTracker.LastReminded[userID]
+
+	if !exists || time.Since(lastReminded) >= 24*time.Hour {
+		altTextReminderTracker.LastReminded[userID] = time.Now()
+		return true
+	}
+
+	return false
+}
+
 func queuePostForAltTextCheck(post *mastodon.Status, userID string) {
 	altTextChecks[post.ID] = AltTextCheck{
 		PostID:    post.ID,
@@ -1597,7 +1620,11 @@ func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkT
 
 				if missingAltText {
 					log.Printf("Notifying user %s about missing alt-text in post %s...", check.UserID, check.PostID)
-					notifyUserOfMissingAltText(c, post, check.UserID)
+					metricsManager.logMissingAltText(string(check.UserID))
+					if shouldSendReminder(check.UserID) {
+						notifyUserOfMissingAltText(c, post, check.UserID)
+						metricsManager.logAltTextReminderSent(string(check.UserID))
+					}
 				}
 
 				// Remove check entry after processing
@@ -1608,7 +1635,7 @@ func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkT
 }
 
 func notifyUserOfMissingAltText(c *mastodon.Client, post *mastodon.Status, userID string) {
-	message := fmt.Sprintf("Hi @%s, please add alt-text to your images by editing your post. Alt-text in the comments isn't easily accessible to screen readers! Thank you!", userID)
+	message := fmt.Sprintf(getLocalizedString(post.Language, "altTextReminder", "response"), userID)
 
 	_, err := c.PostStatus(ctx, &mastodon.Toot{
 		Status:      message,
