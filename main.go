@@ -6,6 +6,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"flag"
 	"fmt"
 	"image"
 	"image/gif"
@@ -39,7 +40,7 @@ import (
 
 // Version of the bot
 
-const Version = "1.4.1"
+const Version = "1.4.2"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -99,6 +100,7 @@ type Config struct {
 		DashboardPort    int  `toml:"dashboard_port"`
 	} `toml:"metrics"`
 	RateLimit struct {
+		Enabled                        bool   `toml:"enabled"`
 		MaxRequestsPerMinute           int    `toml:"max_requests_per_user_per_minute"`
 		MaxRequestsPerHour             int    `toml:"max_requests_per_user_per_hour"`
 		NewAccountMaxRequestsPerMinute int    `toml:"new_account_max_requests_per_minute"`
@@ -140,6 +142,8 @@ var rateLimiter *RateLimiter
 var metricsManager *MetricsManager
 
 func main() {
+	setupFlag := flag.Bool("setup", false, "Run the setup wizard")
+	flag.Parse()
 
 	// Load default configuration from example.config.toml
 	if _, err := toml.DecodeFile("example.config.toml", &defaultConfig); err != nil {
@@ -152,8 +156,12 @@ func main() {
 			log.Fatalf("Error creating default config.toml: %v", err)
 		}
 
-		log.Println("config.toml not found. Created default from example.config.toml\nPlease configure it and restart the bot.")
-		os.Exit(0)
+		log.Println("config.toml not found. Running setup wizard...")
+		*setupFlag = true
+	}
+
+	if *setupFlag {
+		runSetupWizard("config.toml")
 	}
 
 	// Load configuration from config.toml
@@ -240,26 +248,28 @@ func main() {
 	// Initialize the rate limiter
 	rateLimiter = NewRateLimiter()
 
-	// Load rate limiter state from file
-	if err := rateLimiter.LoadFromFile("ratelimiter.json"); err != nil {
-		log.Fatalf("Error loading rate limiter state: %v", err)
+	if config.RateLimit.Enabled {
+		// Load rate limiter state from file
+		if err := rateLimiter.LoadFromFile("ratelimiter.json"); err != nil {
+			log.Fatalf("Error loading rate limiter state: %v", err)
+		}
+
+		// Reset minute counts every minute
+		go func() {
+			for {
+				time.Sleep(1 * time.Minute)
+				rateLimiter.ResetMinuteCounts()
+			}
+		}()
+
+		// Reset hour counts every hour
+		go func() {
+			for {
+				time.Sleep(1 * time.Hour)
+				rateLimiter.ResetHourCounts()
+			}
+		}()
 	}
-
-	// Reset minute counts every minute
-	go func() {
-		for {
-			time.Sleep(1 * time.Minute)
-			rateLimiter.ResetMinuteCounts()
-		}
-	}()
-
-	// Reset hour counts every hour
-	go func() {
-		for {
-			time.Sleep(1 * time.Hour)
-			rateLimiter.ResetHourCounts()
-		}
-	}()
 
 	// Start a goroutine for periodic cleanup of old reply entries
 	go cleanupOldEntries()
@@ -1230,6 +1240,10 @@ func (rl *RateLimiter) IsNewAccount(c *mastodon.Client, userID string) bool {
 
 // Increment increments the request count for a user and checks limits
 func (rl *RateLimiter) Increment(c *mastodon.Client, userID string) bool {
+	if !config.RateLimit.Enabled {
+		return true
+	}
+
 	rl.mu.Lock()
 	defer rl.mu.Unlock()
 
