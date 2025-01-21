@@ -1,6 +1,8 @@
 package main
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"log"
 	"os"
@@ -11,7 +13,7 @@ import (
 // MetricEvent represents a single event that we want to log
 type MetricEvent struct {
 	Timestamp time.Time
-	UserID    string
+	UserID    string // This will store the hashed user ID
 	EventType string
 	Details   map[string]interface{}
 }
@@ -27,6 +29,13 @@ type MetricsManager struct {
 	stopChan  chan struct{}
 }
 
+// hashUserID creates a SHA-256 hash of the user ID
+func hashUserID(userID string) string {
+	hasher := sha256.New()
+	hasher.Write([]byte(userID))
+	return hex.EncodeToString(hasher.Sum(nil))
+}
+
 // NewMetricsManager initializes a new metrics manager
 func NewMetricsManager(enabled bool, filePath string, interval time.Duration) *MetricsManager {
 	mm := &MetricsManager{
@@ -38,6 +47,7 @@ func NewMetricsManager(enabled bool, filePath string, interval time.Duration) *M
 	}
 
 	if mm.enabled {
+		mm.loadAndHashExistingData()
 		mm.wg.Add(1)
 		go mm.run()
 	}
@@ -45,17 +55,47 @@ func NewMetricsManager(enabled bool, filePath string, interval time.Duration) *M
 	return mm
 }
 
-func (mm *MetricsManager) run() {
-	defer mm.wg.Done()
-	for {
-		select {
-		case <-mm.ticker.C:
-			mm.saveToFile()
-		case <-mm.stopChan:
-			mm.ticker.Stop()
-			mm.saveToFile()
-			return
+// loadAndHashExistingData loads existing data and ensures all user IDs are hashed
+func (mm *MetricsManager) loadAndHashExistingData() {
+	mm.fileMutex.Lock()
+	defer mm.fileMutex.Unlock()
+
+	if _, err := os.Stat(mm.filePath); os.IsNotExist(err) {
+		return
+	}
+
+	file, err := os.ReadFile(mm.filePath)
+	if err != nil {
+		log.Printf("Error reading metrics file: %v", err)
+		return
+	}
+
+	var existingLogs []MetricEvent
+	if err := json.Unmarshal(file, &existingLogs); err != nil {
+		log.Printf("Error parsing metrics file: %v", err)
+		return
+	}
+
+	needsRehash := false
+	for _, event := range existingLogs {
+		if len(event.UserID) != 64 {
+			needsRehash = true
+			break
 		}
+	}
+
+	if needsRehash {
+		hashedLogs := make([]MetricEvent, len(existingLogs))
+		for i, event := range existingLogs {
+			hashedEvent := event
+			hashedEvent.UserID = hashUserID(event.UserID)
+			hashedLogs[i] = hashedEvent
+		}
+		mm.logs = hashedLogs
+
+		mm.saveToFile(false)
+	} else {
+		mm.logs = existingLogs
 	}
 }
 
@@ -67,7 +107,7 @@ func (mm *MetricsManager) logEvent(userID, eventType string, details map[string]
 
 	event := MetricEvent{
 		Timestamp: time.Now(),
-		UserID:    userID,
+		UserID:    hashUserID(userID),
 		EventType: eventType,
 		Details:   details,
 	}
@@ -133,11 +173,12 @@ func (mm *MetricsManager) logConsentRequest(userID string, granted bool) {
 }
 
 // saveToFile writes the current metrics data to a file
-func (mm *MetricsManager) saveToFile() {
-	mm.fileMutex.Lock()
-	defer mm.fileMutex.Unlock()
+func (mm *MetricsManager) saveToFile(lock bool) {
+	if lock {
+		mm.fileMutex.Lock()
+		defer mm.fileMutex.Unlock()
+	}
 
-	// Create the file if it doesn't exist, or open it for writing
 	file, err := os.OpenFile(mm.filePath, os.O_CREATE|os.O_WRONLY, 0644)
 	if err != nil {
 		log.Printf("Error opening metrics file: %v", err)
@@ -145,13 +186,11 @@ func (mm *MetricsManager) saveToFile() {
 	}
 	defer file.Close()
 
-	// Truncate the file before writing (since we're writing all metrics)
 	if err := file.Truncate(0); err != nil {
 		log.Printf("Error truncating metrics file: %v", err)
 		return
 	}
 
-	// Reset file pointer to beginning
 	if _, err := file.Seek(0, 0); err != nil {
 		log.Printf("Error seeking in metrics file: %v", err)
 		return
@@ -161,7 +200,9 @@ func (mm *MetricsManager) saveToFile() {
 	encoder.SetIndent("", "  ")
 	if err := encoder.Encode(mm.logs); err != nil {
 		log.Printf("Error writing metrics to file: %v", err)
+		return
 	}
+
 }
 
 func (mm *MetricsManager) loadFromFile() {
@@ -186,6 +227,20 @@ func (mm *MetricsManager) loadFromFile() {
 	}
 
 	mm.logs = existingLogs
+}
+
+func (mm *MetricsManager) run() {
+	defer mm.wg.Done()
+	for {
+		select {
+		case <-mm.ticker.C:
+			mm.saveToFile(true)
+		case <-mm.stopChan:
+			mm.ticker.Stop()
+			mm.saveToFile(true)
+			return
+		}
+	}
 }
 
 // stop terminates the background metrics manager

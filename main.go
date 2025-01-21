@@ -290,7 +290,6 @@ func main() {
 	// Start metrics manager
 	metricsManager = NewMetricsManager(config.Metrics.Enabled, "metrics.json", 10*time.Second)
 	defer metricsManager.stop()
-	metricsManager.loadFromFile()
 
 	fmt.Printf("%s Metrics Collection: %v\n", getStatusSymbol(config.Metrics.Enabled), config.Metrics.Enabled)
 
