@@ -764,7 +764,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		}
 
 		if config.AltTextReminders.Enabled {
-			queuePostForAltTextCheck(status, replyPost.Account.Acct)
+			queuePostForAltTextCheck(status, string(replyPost.Account.ID))
 		}
 
 		// Track the reply with a timestamp
