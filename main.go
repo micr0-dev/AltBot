@@ -40,7 +40,7 @@ import (
 
 // Version of the bot
 
-const Version = "1.4.2"
+const Version = "1.4.3"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -290,7 +290,6 @@ func main() {
 	// Start metrics manager
 	metricsManager = NewMetricsManager(config.Metrics.Enabled, "metrics.json", 10*time.Second)
 	defer metricsManager.stop()
-	metricsManager.loadFromFile()
 
 	fmt.Printf("%s Metrics Collection: %v\n", getStatusSymbol(config.Metrics.Enabled), config.Metrics.Enabled)
 
@@ -764,7 +763,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 		}
 
 		if config.AltTextReminders.Enabled {
-			queuePostForAltTextCheck(status, replyPost.Account.Acct)
+			queuePostForAltTextCheck(status, string(replyPost.Account.ID))
 		}
 
 		// Track the reply with a timestamp
