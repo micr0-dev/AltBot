@@ -205,30 +205,6 @@ func (mm *MetricsManager) saveToFile(lock bool) {
 
 }
 
-func (mm *MetricsManager) loadFromFile() {
-	mm.fileMutex.Lock()
-	defer mm.fileMutex.Unlock()
-
-	// Check if file exists
-	if _, err := os.Stat(mm.filePath); os.IsNotExist(err) {
-		return
-	}
-
-	file, err := os.ReadFile(mm.filePath)
-	if err != nil {
-		log.Printf("Error reading metrics file: %v", err)
-		return
-	}
-
-	var existingLogs []MetricEvent
-	if err := json.Unmarshal(file, &existingLogs); err != nil {
-		log.Printf("Error parsing metrics file: %v", err)
-		return
-	}
-
-	mm.logs = existingLogs
-}
-
 func (mm *MetricsManager) run() {
 	defer mm.wg.Done()
 	for {
