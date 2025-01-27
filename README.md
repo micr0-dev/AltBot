@@ -17,6 +17,17 @@
 
 Altbot is an open-source accessibility bot designed to enhance the Fediverse by generating alt-text descriptions for images, video, and audio. This helps make content more accessible to users with visual impairments.
 
+## Privacy Note
+
+**The current instance of altbot [![Mastodon Follow](https://img.shields.io/mastodon/follow/113183205946060973?domain=fuzzies.wtf&style=social)](https://fuzzies.wtf/@altbot) is using Google Gemini Flash: If you consent, your media will be uploaded to Google and might be used for training purposes.** See also: [Gemini Apps Privacy Hub](https://support.google.com/gemini/answer/13594961)  
+
+Your post content is never used. Only images without existing alt-text will be processed.  
+
+
+## Disclaimer
+
+Alt-texts are generated using a Large Language Model (LLM). While we strive for accuracy, results may sometimes be factually incorrect. Always double-check the alt-text before using it.
+
 ## How It Works
 
 Altbot listens for mentions and follows on Mastodon. When it detects a mention or a new post from a followed user, it checks for images without alt-text. If it finds any, it uses a Large Language Model (LLM) to generate descriptive alt-text and replies with the generated text.
@@ -28,14 +39,6 @@ Altbot listens for mentions and follows on Mastodon. When it detects a mention o
 - **Local LLM Support:** Use local LLMs via Ollama for generating alt-text descriptions.
 - **Consent Requests:** Ask for consent from the original poster before generating alt-text when mentioned by non-OP users.
 - **Configurable Settings:** Easily configure the bot using a TOML file.
-
-## Privacy Note
-
-Your post content is never used. Only images without existing alt-text will be processed.
-
-## Disclaimer
-
-Alt-texts are generated using a Large Language Model (LLM). While we strive for accuracy, results may sometimes be factually incorrect. Always double-check the alt-text before using it.
 
 ## Setup
 
