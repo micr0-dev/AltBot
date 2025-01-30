@@ -61,16 +61,15 @@ type Config struct {
 		OllamaModel string `toml:"ollama_model"`
 	} `toml:"llm"`
 	Gemini struct {
+		Model       string  `toml:"model"`
 		APIKey      string  `toml:"api_key"`
 		Temperature float32 `toml:"temperature"`
 		TopK        int32   `toml:"top_k"`
-	} `toml:"gemini"`
-	SafetySettings struct {
 		HarassmentThreshold       string `toml:"harassment_threshold"`
 		HateSpeechThreshold       string `toml:"hate_speech_threshold"`
 		SexuallyExplicitThreshold string `toml:"sexually_explicit_threshold"`
 		DangerousContentThreshold string `toml:"dangerous_content_threshold"`
-	} `toml:"safety_settings"`
+	} `toml:"gemini"`
 	Localization struct {
 		DefaultLanguage string `toml:"default_language"`
 	} `toml:"localization"`
@@ -391,7 +390,7 @@ func Setup(apiKey string) error {
 		return err
 	}
 
-	model = client.GenerativeModel("gemini-1.5-flash")
+	model = client.GenerativeModel(config.Gemini.Model)
 
 	model.SetTemperature(config.Gemini.Temperature)
 	model.SetTopK(config.Gemini.TopK)
@@ -399,19 +398,19 @@ func Setup(apiKey string) error {
 	model.SafetySettings = []*genai.SafetySetting{
 		{
 			Category:  genai.HarmCategoryHarassment,
-			Threshold: mapHarmBlock(config.SafetySettings.HarassmentThreshold),
+			Threshold: mapHarmBlock(config.Gemini.HarassmentThreshold),
 		},
 		{
 			Category:  genai.HarmCategoryHateSpeech,
-			Threshold: mapHarmBlock(config.SafetySettings.HateSpeechThreshold),
+			Threshold: mapHarmBlock(config.Gemini.HateSpeechThreshold),
 		},
 		{
 			Category:  genai.HarmCategorySexuallyExplicit,
-			Threshold: mapHarmBlock(config.SafetySettings.SexuallyExplicitThreshold),
+			Threshold: mapHarmBlock(config.Gemini.SexuallyExplicitThreshold),
 		},
 		{
 			Category:  genai.HarmCategoryDangerousContent,
-			Threshold: mapHarmBlock(config.SafetySettings.DangerousContentThreshold),
+			Threshold: mapHarmBlock(config.Gemini.DangerousContentThreshold),
 		},
 	}
 
