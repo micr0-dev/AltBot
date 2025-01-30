@@ -57,8 +57,9 @@ type Config struct {
 		Username       string `toml:"username"`
 	} `toml:"server"`
 	LLM struct {
-		Provider    string `toml:"provider"`
-		OllamaModel string `toml:"ollama_model"`
+		Provider       string `toml:"provider"`
+		OllamaModel    string `toml:"ollama_model"`
+		PromptOverride string `toml:"prompt_override"`
 	} `toml:"llm"`
 	Gemini struct {
 		APIKey      string  `toml:"api_key"`
@@ -215,6 +216,14 @@ func main() {
 
 	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
 	fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(videoAudioProcessingCapability), videoAudioProcessingCapability)
+
+	PromptOverrideState = config.LLM.PromptOverride != ""
+
+	if PromptOverrideState {
+		fmt.Printf("%s Prompt Override: Set to \"%.30s...\"\n", getStatusSymbol(false), config.LLM.PromptOverride)
+	} else {
+		fmt.Printf("%s Default Prompts: %s\n", getStatusSymbol(true), "Loaded")
+	}
 
 	// Set up Gemini AI model
 	err = Setup(config.Gemini.APIKey)
