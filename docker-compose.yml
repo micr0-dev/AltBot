@@ -1,0 +1,8 @@
+services:
+  altbot:
+    image: ghcr.io/micr0-dev/altbot:latest
+    ports:
+      - "8080:8080"
+    volumes:
+      - ./:/data
+     

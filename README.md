@@ -41,16 +41,16 @@ Altbot listens for mentions and follows on Mastodon. When it detects a mention o
 - **Configurable Settings:** Easily configure the bot using a TOML file.
 
 ## Setup
-
+### Standard
 1. Clone the repository:
     ```sh
     git clone https://github.com/micr0-dev/Altbot.git
     cd Altbot
     ```
 
-2. Run it:
+2. Run the setup wizard:
     ```sh
-    go run main.go
+    go run .
     ```
 
     The setup wizard will guide you through configuring the essential values required for the bot, including:
@@ -65,7 +65,33 @@ Altbot listens for mentions and follows on Mastodon. When it detects a mention o
 
 3. Run the bot:
     ```sh
-    go run main.go
+    go run .
+    ```
+### Docker
+1. Clone the repository:
+    ```sh
+    git clone https://github.com/micr0-dev/Altbot.git
+    cd Altbot
+    ```
+
+2. Run the setup wizard:
+    ```sh
+    docker run -it -v ./:/data --rm ghcr.io/micr0-dev/altbot:latest
+    ```
+
+    The setup wizard will guide you through configuring the essential values required for the bot, including:
+    - Your Mastodon server URL, client secret, access token, and bot username.
+    - The admin contact handle for moderation notifications.
+    - Enabling optional features like metrics and alt-text reminders.
+    
+    Alternatively, copy the example configuration file and edit it manually:
+    ```sh
+    cp example.config.toml config.toml
+    ```
+
+3. Run the bot:
+    ```sh
+    docker compose up -d
     ```
 
 ## Contributing
