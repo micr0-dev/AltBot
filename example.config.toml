@@ -10,8 +10,10 @@ access_token = "your_access_token"               # Your Mastodon App access toke
 username = "your_bot_username"                   # Your Mastodon bot's username
 
 [llm]
-provider = "gemini"         # or "ollama"
+provider = "gemini"         # can be "gemini", "ollama", or "vllm"
 ollama_model = "llava-phi3"
+vllm_model = "AIDC-AI/Ovis2-4B"
+vllm_server = "http://localhost:8000"
 prompt_override = "" # WARNING: This will override the prompt making the bot only generate alt-text in one language
 
 [gemini]

@@ -39,7 +39,7 @@ import (
 )
 
 // Version of the bot
-const Version = "1.4.4"
+const Version = "1.5"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -58,17 +58,19 @@ type Config struct {
 	LLM struct {
 		Provider       string `toml:"provider"`
 		OllamaModel    string `toml:"ollama_model"`
+		VLLMServer     string `toml:"vllm_server"`
+		VLLMModel      string `toml:"vllm_model"`
 		PromptOverride string `toml:"prompt_override"`
 	} `toml:"llm"`
 	Gemini struct {
-		Model       string  `toml:"model"`
-		APIKey      string  `toml:"api_key"`
-		Temperature float32 `toml:"temperature"`
-		TopK        int32   `toml:"top_k"`
-		HarassmentThreshold       string `toml:"harassment_threshold"`
-		HateSpeechThreshold       string `toml:"hate_speech_threshold"`
-		SexuallyExplicitThreshold string `toml:"sexually_explicit_threshold"`
-		DangerousContentThreshold string `toml:"dangerous_content_threshold"`
+		Model                     string  `toml:"model"`
+		APIKey                    string  `toml:"api_key"`
+		Temperature               float32 `toml:"temperature"`
+		TopK                      int32   `toml:"top_k"`
+		HarassmentThreshold       string  `toml:"harassment_threshold"`
+		HateSpeechThreshold       string  `toml:"hate_speech_threshold"`
+		SexuallyExplicitThreshold string  `toml:"sexually_explicit_threshold"`
+		DangerousContentThreshold string  `toml:"dangerous_content_threshold"`
 	} `toml:"gemini"`
 	Localization struct {
 		DefaultLanguage string `toml:"default_language"`
@@ -140,6 +142,8 @@ var rateLimiter *RateLimiter
 
 var metricsManager *MetricsManager
 
+var llmProvider LLMProvider
+
 func main() {
 	setupFlag := flag.Bool("setup", false, "Run the setup wizard")
 	flag.Parse()
@@ -175,6 +179,25 @@ func main() {
 		log.Fatal("Please configure the Mastodon server in config.toml")
 	}
 
+	var err error
+	llmProvider, err = NewLLMProvider(config)
+	if err != nil {
+		log.Fatalf("Error initializing LLM provider: %v", err)
+	}
+	defer llmProvider.Close()
+
+	if config.LLM.Provider == "vllm" {
+		// Check if vLLM server is running
+		if !checkVLLMServer(config.LLM.VLLMServer) {
+			fmt.Printf("%s vLLM server not running, attempting to start...\n", Yellow)
+			if err := startVLLMServer(config.LLM.VLLMModel); err != nil {
+				log.Fatalf("Error starting vLLM server: %v", err)
+			}
+		}
+
+		videoAudioProcessingCapability = false
+	}
+
 	if config.LLM.Provider == "ollama" {
 		err := checkOllamaModel()
 		if err != nil {
@@ -184,7 +207,7 @@ func main() {
 		videoAudioProcessingCapability = false
 	}
 
-	err := loadLocalizations()
+	err = loadLocalizations()
 	if err != nil {
 		log.Fatalf("Error loading localizations: %v", err)
 	}
@@ -213,12 +236,16 @@ func main() {
 	fmt.Printf("%s %d Custom settings loaded\n\n", getStatusSymbol(customSettingsCount > 0), customSettingsCount)
 
 	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
-	fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(videoAudioProcessingCapability), videoAudioProcessingCapability)
+	if videoAudioProcessingCapability {
+		fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(true), videoAudioProcessingCapability)
+	} else {
+		fmt.Printf("%s Video/Audio Processing: Unsupported by LLM\n", getStatusSymbol(false))
+	}
 
 	PromptOverrideState = config.LLM.PromptOverride != ""
 
 	if PromptOverrideState {
-		fmt.Printf("%s Prompt Override: Set to \"%.30s...\"\n", getStatusSymbol(false), config.LLM.PromptOverride)
+		fmt.Printf("%s Prompt Override: Set to \"%.30s...\"\n", getStatusSymbol(true), config.LLM.PromptOverride)
 	} else {
 		fmt.Printf("%s Default Prompts: %s\n", getStatusSymbol(true), "Loaded")
 	}
@@ -853,14 +880,12 @@ func generateImageAltText(imageURL string, lang string) (string, error) {
 
 	fmt.Println("Processing image: " + imageURL)
 
-	switch config.LLM.Provider {
-	case "gemini":
-		return GenerateImageAltWithGemini(prompt, downscaledImg, format)
-	case "ollama":
-		return GenerateImageAltWithOllama(prompt, downscaledImg, format)
-	default:
-		return "", fmt.Errorf("unsupported LLM provider: %s", config.LLM.Provider)
+	altText, err := llmProvider.GenerateAltText(prompt, downscaledImg, format)
+	if err != nil {
+		return "", err
 	}
+
+	return postProcessAltText(altText), nil
 }
 
 // generateVideoAltText generates alt-text for a video using Gemini AI
@@ -997,41 +1022,6 @@ func GenerateAudioAltWithGemini(strPrompt string, audioFilePath string) (string,
 
 	// Handle the response of generated text
 	return postProcessAltText(getResponse(resp)), nil
-}
-
-// GenerateImageAltWithOllama generates alt-text using the Ollama model
-func GenerateImageAltWithOllama(strPrompt string, image []byte, fileExtension string) (string, error) {
-	// Save the image temporarily
-	tmpFile, err := os.CreateTemp("", "image.*."+fileExtension)
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	if _, err := tmpFile.Write(image); err != nil {
-		return "", err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return "", err
-	}
-
-	// Run the Ollama command
-	return runOllamaCommand(strPrompt, tmpFile.Name(), config.LLM.OllamaModel)
-}
-
-// runOllamaCommand runs the Ollama command to generate alt-text for an image
-func runOllamaCommand(prompt, imagePath, model string) (string, error) {
-	cmd := exec.Command("ollama", "run", model, fmt.Sprintf("%s %s", prompt, imagePath))
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	err := cmd.Run()
-	if err != nil {
-		return "", err
-	}
-
-	return out.String(), nil
 }
 
 // downscaleImage resizes the image to the specified width while maintaining the aspect ratio
