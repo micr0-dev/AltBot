@@ -10,11 +10,11 @@ access_token = "your_access_token"               # Your Mastodon App access toke
 username = "your_bot_username"                   # Your Mastodon bot's username
 
 [llm]
-provider = "transformers"         # can be "gemini", "ollama", or "transformers"
+provider = "gemini"         # can be "gemini", "ollama", or "transformers"
 ollama_model = "llava-phi3"
 prompt_override = "" # WARNING: This will override the prompt making the bot only generate alt-text in one language
 
-[transformers_server_args]
+[transformers]
 model = "AIDC-AI/Ovis2-4B"
 port = 8000
 device = "cuda"

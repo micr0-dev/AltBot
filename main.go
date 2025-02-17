@@ -64,7 +64,7 @@ type Config struct {
 		Device     string  `toml:"device"`
 		MaxMemory  float64 `toml:"max_memory"`
 		TorchDtype string  `toml:"torch_dtype"`
-	} `toml:"transformers_server_args"`
+	} `toml:"transformers"`
 	Gemini struct {
 		Model                     string  `toml:"model"`
 		APIKey                    string  `toml:"api_key"`
