@@ -29,8 +29,6 @@ import (
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
 	"golang.org/x/net/html"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/mattn/go-mastodon"
@@ -60,15 +58,22 @@ type Config struct {
 		OllamaModel    string `toml:"ollama_model"`
 		PromptOverride string `toml:"prompt_override"`
 	} `toml:"llm"`
+	TransformersServerArgs struct {
+		Port       int     `toml:"port"`
+		Model      string  `toml:"model"`
+		Device     string  `toml:"device"`
+		MaxMemory  float64 `toml:"max_memory"`
+		TorchDtype string  `toml:"torch_dtype"`
+	} `toml:"transformers"`
 	Gemini struct {
-		Model       string  `toml:"model"`
-		APIKey      string  `toml:"api_key"`
-		Temperature float32 `toml:"temperature"`
-		TopK        int32   `toml:"top_k"`
-		HarassmentThreshold       string `toml:"harassment_threshold"`
-		HateSpeechThreshold       string `toml:"hate_speech_threshold"`
-		SexuallyExplicitThreshold string `toml:"sexually_explicit_threshold"`
-		DangerousContentThreshold string `toml:"dangerous_content_threshold"`
+		Model                     string  `toml:"model"`
+		APIKey                    string  `toml:"api_key"`
+		Temperature               float32 `toml:"temperature"`
+		TopK                      int32   `toml:"top_k"`
+		HarassmentThreshold       string  `toml:"harassment_threshold"`
+		HateSpeechThreshold       string  `toml:"hate_speech_threshold"`
+		SexuallyExplicitThreshold string  `toml:"sexually_explicit_threshold"`
+		DangerousContentThreshold string  `toml:"dangerous_content_threshold"`
 	} `toml:"gemini"`
 	Localization struct {
 		DefaultLanguage string `toml:"default_language"`
@@ -140,6 +145,8 @@ var rateLimiter *RateLimiter
 
 var metricsManager *MetricsManager
 
+var llmProvider LLMProvider
+
 func main() {
 	setupFlag := flag.Bool("setup", false, "Run the setup wizard")
 	flag.Parse()
@@ -174,17 +181,46 @@ func main() {
 	if config.Server.MastodonServer == "https://mastodon.example.com" {
 		log.Fatal("Please configure the Mastodon server in config.toml")
 	}
+	var err error
+	llmProvider, err = NewLLMProvider(config)
+	if err != nil {
+		log.Fatalf("Error initializing LLM provider: %v", err)
+	}
+	defer llmProvider.Close()
 
-	if config.LLM.Provider == "ollama" {
+	// Set video/audio processing capability based on provider
+	switch config.LLM.Provider {
+	case "transformers":
+		// Check if Transformers server is running
+		serverURL := fmt.Sprintf("http://localhost:%d",
+			config.TransformersServerArgs.Port)
+
+		if !checkTransformersServer(serverURL) {
+			fmt.Printf("%s Transformers server not running, attempting to start...\n", Yellow)
+			if err := startTransformersServer(config); err != nil {
+				log.Fatalf("Error starting Transformers server: %v", err)
+			}
+		}
+
+		// Transformers models (like Ovis) support video/audio processing
+		videoAudioProcessingCapability = false
+
+	case "ollama":
 		err := checkOllamaModel()
 		if err != nil {
 			log.Fatalf("Error checking Ollama model: %v", err)
 		}
-
 		videoAudioProcessingCapability = false
+
+	case "gemini":
+		// Gemini supports video/audio processing
+		videoAudioProcessingCapability = true
+
+	default:
+		log.Fatalf("Unsupported LLM provider: %s", config.LLM.Provider)
 	}
 
-	err := loadLocalizations()
+	err = loadLocalizations()
 	if err != nil {
 		log.Fatalf("Error loading localizations: %v", err)
 	}
@@ -213,12 +249,16 @@ func main() {
 	fmt.Printf("%s %d Custom settings loaded\n\n", getStatusSymbol(customSettingsCount > 0), customSettingsCount)
 
 	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
-	fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(videoAudioProcessingCapability), videoAudioProcessingCapability)
+	if videoAudioProcessingCapability {
+		fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(true), videoAudioProcessingCapability)
+	} else {
+		fmt.Printf("%s Video/Audio Processing: Unsupported by LLM\n", getStatusSymbol(false))
+	}
 
 	PromptOverrideState = config.LLM.PromptOverride != ""
 
 	if PromptOverrideState {
-		fmt.Printf("%s Prompt Override: Set to \"%.30s...\"\n", getStatusSymbol(false), config.LLM.PromptOverride)
+		fmt.Printf("%s Prompt Override: Set to \"%.30s...\"\n", getStatusSymbol(true), config.LLM.PromptOverride)
 	} else {
 		fmt.Printf("%s Default Prompts: %s\n", getStatusSymbol(true), "Loaded")
 	}
@@ -714,8 +754,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	// Add mention to the original poster at the start
 	combinedResponse = fmt.Sprintf("@%s %s", replyPost.Account.Acct, combinedResponse)
 
-	providerMessage := getLocalizedString(replyPost.Language, "providedByMessage", "response")
-	combinedResponse = fmt.Sprintf("%s\n\n%s", combinedResponse, fmt.Sprintf(providerMessage, config.Server.Username, cases.Title(language.AmericanEnglish).String(config.LLM.Provider)))
+	combinedResponse = fmt.Sprintf("%s\n\n%s", combinedResponse, getProviderAttribution(config, replyPost.Language))
 
 	// Post the combined response
 	if combinedResponse != "" {
@@ -853,14 +892,12 @@ func generateImageAltText(imageURL string, lang string) (string, error) {
 
 	fmt.Println("Processing image: " + imageURL)
 
-	switch config.LLM.Provider {
-	case "gemini":
-		return GenerateImageAltWithGemini(prompt, downscaledImg, format)
-	case "ollama":
-		return GenerateImageAltWithOllama(prompt, downscaledImg, format)
-	default:
-		return "", fmt.Errorf("unsupported LLM provider: %s", config.LLM.Provider)
+	altText, err := llmProvider.GenerateAltText(prompt, downscaledImg, format)
+	if err != nil {
+		return "", err
 	}
+
+	return postProcessAltText(altText), nil
 }
 
 // generateVideoAltText generates alt-text for a video using Gemini AI
@@ -997,41 +1034,6 @@ func GenerateAudioAltWithGemini(strPrompt string, audioFilePath string) (string,
 
 	// Handle the response of generated text
 	return postProcessAltText(getResponse(resp)), nil
-}
-
-// GenerateImageAltWithOllama generates alt-text using the Ollama model
-func GenerateImageAltWithOllama(strPrompt string, image []byte, fileExtension string) (string, error) {
-	// Save the image temporarily
-	tmpFile, err := os.CreateTemp("", "image.*."+fileExtension)
-	if err != nil {
-		return "", err
-	}
-	defer os.Remove(tmpFile.Name())
-
-	if _, err := tmpFile.Write(image); err != nil {
-		return "", err
-	}
-	if err := tmpFile.Close(); err != nil {
-		return "", err
-	}
-
-	// Run the Ollama command
-	return runOllamaCommand(strPrompt, tmpFile.Name(), config.LLM.OllamaModel)
-}
-
-// runOllamaCommand runs the Ollama command to generate alt-text for an image
-func runOllamaCommand(prompt, imagePath, model string) (string, error) {
-	cmd := exec.Command("ollama", "run", model, fmt.Sprintf("%s %s", prompt, imagePath))
-
-	var out bytes.Buffer
-	cmd.Stdout = &out
-
-	err := cmd.Run()
-	if err != nil {
-		return "", err
-	}
-
-	return out.String(), nil
 }
 
 // downscaleImage resizes the image to the specified width while maintaining the aspect ratio
@@ -1628,7 +1630,8 @@ func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkT
 					log.Printf("Notifying user %s about missing alt-text in post %s...", check.UserID, check.PostID)
 					metricsManager.logMissingAltText(string(check.UserID))
 					if shouldSendReminder(check.UserID) {
-						notifyUserOfMissingAltText(c, post, check.UserID)
+						username := "@" + post.Account.Acct
+						notifyUserOfMissingAltText(c, post, username)
 						metricsManager.logAltTextReminderSent(string(check.UserID))
 					}
 				}
@@ -1747,4 +1750,34 @@ func checkDifferences(d, u reflect.Value, prefix string, customCount *int, warni
 			*customCount++
 		}
 	}
+}
+
+func getProviderAttribution(config Config, lang string) string {
+	var modelInfo string
+	var messageKey string
+
+	switch config.LLM.Provider {
+	case "transformers", "ollama":
+		// These are local providers
+		messageKey = "providedByMessageLocal"
+
+		if config.LLM.Provider == "transformers" {
+			modelName := config.TransformersServerArgs.Model
+			modelInfo = strings.Split(modelName, "/")[1] // Just use the model name without path
+		} else {
+			modelInfo = strings.Split(config.LLM.OllamaModel, ":")[0] // Just use the base model name
+		}
+
+	case "gemini":
+		// Cloud provider uses standard message
+		messageKey = "providedByMessage"
+		modelInfo = "Gemini"
+
+	default:
+		messageKey = "providedByMessage"
+		modelInfo = ""
+	}
+
+	providerMessage := getLocalizedString(lang, messageKey, "response")
+	return fmt.Sprintf(providerMessage, config.Server.Username, modelInfo)
 }

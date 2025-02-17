@@ -11,6 +11,7 @@
             "imageAlreadyHasAltText": "This image already has alt-text",
             "unsupportedFile": "This file is unsupported, only images, videos, and audio files are currently supported",
             "providedByMessage": "Provided by @%s, generated using %s",
+            "providedByMessageLocal": "Provided by @%s, generated privately and locally using %s",
             "altTextReminder": "Hi @%s, please add alt-text to your images by editing your post. Alt-text in the comments isn't easily accessible to screenreaders! Thank you!"
         }
     },
@@ -26,6 +27,7 @@
             "imageAlreadyHasAltText": "У этого изображения уже есть описание",
             "unsupportedFile": "Этот файл не поддерживается, в это время поддерживаются только изображения, видео и аудио",
             "providedByMessage": "Предоставлено @%s, сгенерировано с использованием %s",
+            "providedByMessageLocal": "Предоставлено @%s, сгенерировано локально и приватно с использованием %s",
             "altTextReminder": "Привет, @%s, пожалуйста, добавьте текстовые описания к своим изображениям, отредактировав свой пост. Текстовые описания в комментариях недоступны для скринридеров! Спасибо!"
         }
     },
@@ -41,6 +43,7 @@
             "imageAlreadyHasAltText": "Гэтае выява ўжо мае альтэрнатыўны тэкст",
             "unsupportedFile": "Гэты файл не падтрымліваецца, у цяперашні час падтрымліваюцца толькі выявы, відэа і аўдыё",
             "providedByMessage": "Прадастаўлена @%s, створана з выкарыстаннем %s",
+            "providedByMessageLocal": "Прадастаўлена @%s, створана лакальна і прыватна з выкарыстаннем %s",
             "altTextReminder": "Прывітанне, @%s, калі ласка, дадайце тэкставыя апісанні да вашых малюнкаў, адрэдагаваўшы свой пост. Тэксты ў каментарыях складана даступныя экранным чытальнікам! Дзякуй!"
         }
     },
@@ -56,6 +59,7 @@
             "imageAlreadyHasAltText": "Esta imagen ya tiene texto alternativo",
             "unsupportedFile": "Este archivo no es compatible, actualmente solo se admiten imágenes, videos y archivos de audio",
             "providedByMessage": "Proporcionado por @%s, generado usando %s",
+            "providedByMessageLocal": "Proporcionado por @%s, generado de forma privada y local usando %s",
             "altTextReminder": "Hola @%s, por favor añade texto alternativo a tus imágenes editando tu publicación. ¡El texto alternativo en los comentarios no es fácilmente accesible para lectores de pantalla! ¡Gracias!"
         }
     },
@@ -71,6 +75,7 @@
             "imageAlreadyHasAltText": "Cette image a déjà un texte alternatif",
             "unsupportedFile": "Ce fichier n'est pas pris en charge, actuellement seules les images, vidéos et fichiers audio sont pris en charge",
             "providedByMessage": "Fourni par @%s, généré en utilisant %s",
+            "providedByMessageLocal": "Fourni par @%s, généré localement et en privé en utilisant %s",
             "altTextReminder": "Bonjour @%s, veuillez ajouter du texte alternatif à vos images en modifiant votre publication. Le texte alternatif dans les commentaires n'est pas facilement accessible aux lecteurs d'écran ! Merci !"
         }
     },
@@ -86,6 +91,7 @@
             "imageAlreadyHasAltText": "Dieses Bild hat bereits einen Alt-Text",
             "unsupportedFile": "Diese Datei wird nicht unterstützt, derzeit werden nur Bilder, Videos und Audiodateien unterstützt",
             "providedByMessage": "Bereitgestellt von @%s, generiert mit %s",
+                    "providedByMessageLocal": "Bereitgestellt von @%s, privat und lokal generiert mit %s",
             "altTextReminder": "Hallo @%s, bitte füge Alt-Text zu deinen Bildern hinzu, indem du deinen Beitrag bearbeitest. Alt-Text in den Kommentaren ist für Screenreader nur schwer zugänglich! Danke!"
         }
     },
@@ -101,6 +107,7 @@
             "imageAlreadyHasAltText": "Questa immagine ha già un testo alternativo",
             "unsupportedFile": "Questo file non è supportato, attualmente sono supportati solo immagini, video e file audio",
             "providedByMessage": "Fornito da @%s, generato utilizzando %s",
+            "providedByMessageLocal": "Fornito da @%s, generato localmente e privatamente utilizzando %s",
             "altTextReminder": "Ciao @%s, per favore aggiungi testo alternativo alle tue immagini modificando il tuo post. Il testo alternativo nei commenti non è facilmente accessibile dai lettori di schermo! Grazie!"
         }
     },
@@ -116,6 +123,7 @@
             "imageAlreadyHasAltText": "この画像にはすでに代替テキストがあります",
             "unsupportedFile": "このファイルはサポートされていません。現在、サポートされているのは画像、ビデオ、およびオーディオファイルのみです",
             "providedByMessage": "@%s によって提供され、%s を使用して生成されました",
+            "providedByMessageLocal": "@%s によって提供され、%s を使用してローカルでプライベートに生成されました",
             "altTextReminder": "こんにちは @%s、投稿を編集して画像に代替テキストを追加してください。コメント内の代替テキストはスクリーンリーダーでは簡単にアクセスできません！ありがとうございます！"
         }
     },
@@ -131,6 +139,7 @@
             "imageAlreadyHasAltText": "此图像已具有替代文本",
             "unsupportedFile": "此文件不受支持，目前仅支持图像、视频和音频文件",
             "providedByMessage": "由 @%s 提供，使用 %s 生成",
+            "providedByMessageLocal": "由 @%s 提供，使用 %s 在本地私密生成",
             "altTextReminder": "您好，@%s，请通过编辑帖子为您的图片添加替代文本。评论中的替代文本对屏幕阅读器不易访问！谢谢！"
         }
     },
@@ -146,6 +155,7 @@
             "imageAlreadyHasAltText": "Esta imagem já possui texto alternativo",
             "unsupportedFile": "Este arquivo não é suportado, atualmente apenas imagens, vídeos e arquivos de áudio são suportados",
             "providedByMessage": "Fornecido por @%s, gerado usando %s",
+            "providedByMessageLocal": "Fornecido por @%s, gerado localmente e de forma privada usando %s",
             "altTextReminder": "Olá @%s, por favor adicione texto alternativo às suas imagens editando sua postagem. O texto alternativo nos comentários não é facilmente acessível para leitores de tela! Obrigado!"
         }
     },
@@ -161,6 +171,7 @@
             "imageAlreadyHasAltText": "이 이미지에는 이미 대체 텍스트가 있습니다",
             "unsupportedFile": "이 파일은 지원되지 않습니다. 현재 이미지, 비디오 및 오디오 파일만 지원됩니다",
             "providedByMessage": "@%s 에 의해 제공되었으며 %s 를 사용하여 생성되었습니다",
+            "providedByMessageLocal": "@%s 에 의해 제공되었으며 %s 를 사용하여 로컬에서 비공개로 생성되었습니다",
             "altTextReminder": "안녕하세요 @%s, 게시물을 편집하여 이미지에 대체 텍스트를 추가해 주세요. 댓글에 있는 대체 텍스트는 화면 판독기에 쉽게 접근할 수 없습니다! 감사합니다!"
         }
     }
