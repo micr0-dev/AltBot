@@ -29,8 +29,6 @@ import (
 	"golang.org/x/image/tiff"
 	"golang.org/x/image/webp"
 	"golang.org/x/net/html"
-	"golang.org/x/text/cases"
-	"golang.org/x/text/language"
 
 	"github.com/google/generative-ai-go/genai"
 	"github.com/mattn/go-mastodon"
@@ -58,10 +56,15 @@ type Config struct {
 	LLM struct {
 		Provider       string `toml:"provider"`
 		OllamaModel    string `toml:"ollama_model"`
-		VLLMServer     string `toml:"vllm_server"`
-		VLLMModel      string `toml:"vllm_model"`
 		PromptOverride string `toml:"prompt_override"`
 	} `toml:"llm"`
+	TransformersServerArgs struct {
+		Port       int     `toml:"port"`
+		Model      string  `toml:"model"`
+		Device     string  `toml:"device"`
+		MaxMemory  float64 `toml:"max_memory"`
+		TorchDtype string  `toml:"torch_dtype"`
+	} `toml:"transformers_server_args"`
 	Gemini struct {
 		Model                     string  `toml:"model"`
 		APIKey                    string  `toml:"api_key"`
@@ -178,7 +181,6 @@ func main() {
 	if config.Server.MastodonServer == "https://mastodon.example.com" {
 		log.Fatal("Please configure the Mastodon server in config.toml")
 	}
-
 	var err error
 	llmProvider, err = NewLLMProvider(config)
 	if err != nil {
@@ -186,25 +188,36 @@ func main() {
 	}
 	defer llmProvider.Close()
 
-	if config.LLM.Provider == "vllm" {
-		// Check if vLLM server is running
-		if !checkVLLMServer(config.LLM.VLLMServer) {
-			fmt.Printf("%s vLLM server not running, attempting to start...\n", Yellow)
-			if err := startVLLMServer(config.LLM.VLLMModel); err != nil {
-				log.Fatalf("Error starting vLLM server: %v", err)
+	// Set video/audio processing capability based on provider
+	switch config.LLM.Provider {
+	case "transformers":
+		// Check if Transformers server is running
+		serverURL := fmt.Sprintf("http://localhost:%d",
+			config.TransformersServerArgs.Port)
+
+		if !checkTransformersServer(serverURL) {
+			fmt.Printf("%s Transformers server not running, attempting to start...\n", Yellow)
+			if err := startTransformersServer(config); err != nil {
+				log.Fatalf("Error starting Transformers server: %v", err)
 			}
 		}
 
+		// Transformers models (like Ovis) support video/audio processing
 		videoAudioProcessingCapability = false
-	}
 
-	if config.LLM.Provider == "ollama" {
+	case "ollama":
 		err := checkOllamaModel()
 		if err != nil {
 			log.Fatalf("Error checking Ollama model: %v", err)
 		}
-
 		videoAudioProcessingCapability = false
+
+	case "gemini":
+		// Gemini supports video/audio processing
+		videoAudioProcessingCapability = true
+
+	default:
+		log.Fatalf("Unsupported LLM provider: %s", config.LLM.Provider)
 	}
 
 	err = loadLocalizations()
@@ -741,8 +754,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 	// Add mention to the original poster at the start
 	combinedResponse = fmt.Sprintf("@%s %s", replyPost.Account.Acct, combinedResponse)
 
-	providerMessage := getLocalizedString(replyPost.Language, "providedByMessage", "response")
-	combinedResponse = fmt.Sprintf("%s\n\n%s", combinedResponse, fmt.Sprintf(providerMessage, config.Server.Username, cases.Title(language.AmericanEnglish).String(config.LLM.Provider)))
+	combinedResponse = fmt.Sprintf("%s\n\n%s", combinedResponse, getProviderAttribution(config, replyPost.Language))
 
 	// Post the combined response
 	if combinedResponse != "" {
@@ -1618,7 +1630,8 @@ func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkT
 					log.Printf("Notifying user %s about missing alt-text in post %s...", check.UserID, check.PostID)
 					metricsManager.logMissingAltText(string(check.UserID))
 					if shouldSendReminder(check.UserID) {
-						notifyUserOfMissingAltText(c, post, check.UserID)
+						username := "@" + post.Account.Acct
+						notifyUserOfMissingAltText(c, post, username)
 						metricsManager.logAltTextReminderSent(string(check.UserID))
 					}
 				}
@@ -1737,4 +1750,34 @@ func checkDifferences(d, u reflect.Value, prefix string, customCount *int, warni
 			*customCount++
 		}
 	}
+}
+
+func getProviderAttribution(config Config, lang string) string {
+	var modelInfo string
+	var messageKey string
+
+	switch config.LLM.Provider {
+	case "transformers", "ollama":
+		// These are local providers
+		messageKey = "providedByMessageLocal"
+
+		if config.LLM.Provider == "transformers" {
+			modelName := config.TransformersServerArgs.Model
+			modelInfo = strings.Split(modelName, "/")[1] // Just use the model name without path
+		} else {
+			modelInfo = strings.Split(config.LLM.OllamaModel, ":")[0] // Just use the base model name
+		}
+
+	case "gemini":
+		// Cloud provider uses standard message
+		messageKey = "providedByMessage"
+		modelInfo = "Gemini"
+
+	default:
+		messageKey = "providedByMessage"
+		modelInfo = ""
+	}
+
+	providerMessage := getLocalizedString(lang, messageKey, "response")
+	return fmt.Sprintf(providerMessage, config.Server.Username, modelInfo)
 }

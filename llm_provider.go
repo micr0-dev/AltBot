@@ -2,13 +2,17 @@
 package main
 
 import (
+	"bufio"
 	"bytes"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
 	"os/exec"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/google/generative-ai-go/genai"
@@ -32,10 +36,11 @@ type OllamaProvider struct {
 	model string
 }
 
-// VLLMProvider implements LLMProvider for vLLM
-type VLLMProvider struct {
+// TransformersProvider implements LLMProvider for Hugging Face Transformers
+type TransformersProvider struct {
 	ServerURL string
 	Model     string
+	Config    *Config
 }
 
 // NewLLMProvider creates a new LLM provider based on the configuration
@@ -45,8 +50,8 @@ func NewLLMProvider(config Config) (LLMProvider, error) {
 		return setupGeminiProvider(config)
 	case "ollama":
 		return setupOllamaProvider(config)
-	case "vllm":
-		return setupVLLMProvider(config)
+	case "transformers":
+		return setupTransformersProvider(config)
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", config.LLM.Provider)
 	}
@@ -106,13 +111,6 @@ func setupOllamaProvider(config Config) (*OllamaProvider, error) {
 	}, nil
 }
 
-func setupVLLMProvider(config Config) (*VLLMProvider, error) {
-	return &VLLMProvider{
-		ServerURL: config.LLM.VLLMServer,
-		Model:     config.LLM.VLLMModel,
-	}, nil
-}
-
 // GenerateAltText implementations for each provider
 func (p *GeminiProvider) GenerateAltText(prompt string, imageData []byte, format string) (string, error) {
 	var parts []genai.Part
@@ -129,7 +127,7 @@ func (p *GeminiProvider) GenerateAltText(prompt string, imageData []byte, format
 
 func (p *OllamaProvider) GenerateAltText(prompt string, imageData []byte, format string) (string, error) {
 	// Create a temporary file for the image
-	tmpFile, err := os.CreateTemp("", "image.*"+format)
+	tmpFile, err := os.CreateTemp("", "image.*."+format)
 	if err != nil {
 		return "", err
 	}
@@ -156,7 +154,7 @@ func (p *OllamaProvider) GenerateAltText(prompt string, imageData []byte, format
 	return out.String(), nil
 }
 
-func (p *VLLMProvider) GenerateAltText(prompt string, imageData []byte, format string) (string, error) {
+func (p *TransformersProvider) GenerateAltText(prompt string, imageData []byte, format string) (string, error) {
 	// Convert image to base64
 	base64Image := base64.StdEncoding.EncodeToString(imageData)
 
@@ -184,20 +182,39 @@ func (p *VLLMProvider) GenerateAltText(prompt string, imageData []byte, format s
 
 	jsonData, err := json.Marshal(payload)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error marshaling JSON: %v", err)
 	}
 
-	// Make the HTTP request to the vLLM server
-	resp, err := http.Post(
-		p.ServerURL+"/v1/chat/completions",
+	fullURL := fmt.Sprintf("%s/v1/chat/completions", p.ServerURL)
+
+	// Create HTTP client with timeout
+	client := &http.Client{
+		Timeout: 30 * time.Second,
+	}
+
+	// Make the HTTP request to the server
+	resp, err := client.Post(
+		fullURL,
 		"application/json",
 		bytes.NewBuffer(jsonData),
 	)
 	if err != nil {
-		return "", err
+		return "", fmt.Errorf("error making request to server: %v", err)
 	}
 	defer resp.Body.Close()
 
+	// Read the entire response body
+	body, err := io.ReadAll(resp.Body)
+	if err != nil {
+		return "", fmt.Errorf("error reading response body: %v", err)
+	}
+
+	// Check if response is successful
+	if resp.StatusCode != http.StatusOK {
+		return "", fmt.Errorf("server returned status %d: %s", resp.StatusCode, string(body))
+	}
+
+	// Try to parse as JSON
 	var result struct {
 		Choices []struct {
 			Message struct {
@@ -206,12 +223,13 @@ func (p *VLLMProvider) GenerateAltText(prompt string, imageData []byte, format s
 		} `json:"choices"`
 	}
 
-	if err := json.NewDecoder(resp.Body).Decode(&result); err != nil {
-		return "", err
+	if err := json.Unmarshal(body, &result); err != nil {
+		// Log the actual response for debugging
+		return "", fmt.Errorf("error parsing JSON response (status %d): %s", resp.StatusCode, string(body))
 	}
 
 	if len(result.Choices) == 0 {
-		return "", fmt.Errorf("no response from vLLM server")
+		return "", fmt.Errorf("no choices in response: %s", string(body))
 	}
 
 	return result.Choices[0].Message.Content, nil
@@ -229,13 +247,25 @@ func (p *OllamaProvider) Close() error {
 	return nil // Nothing to close for Ollama
 }
 
-func (p *VLLMProvider) Close() error {
+func (p *TransformersProvider) Close() error {
 	return nil // Server is managed separately
 }
 
-// Helper function to check vLLM server status
-func checkVLLMServer(serverURL string) bool {
-	resp, err := http.Get(serverURL + "/health")
+func setupTransformersProvider(config Config) (*TransformersProvider, error) {
+	serverURL := fmt.Sprintf("http://localhost:%d", config.TransformersServerArgs.Port)
+	return &TransformersProvider{
+		Model:     config.TransformersServerArgs.Model,
+		ServerURL: serverURL,
+		Config:    &config,
+	}, nil
+}
+
+func checkTransformersServer(serverURL string) bool {
+	client := http.Client{
+		Timeout: 5 * time.Second,
+	}
+
+	resp, err := client.Get(serverURL + "/health")
 	if err != nil {
 		return false
 	}
@@ -243,31 +273,103 @@ func checkVLLMServer(serverURL string) bool {
 	return resp.StatusCode == 200
 }
 
-// Helper function to start vLLM server
-func startVLLMServer(model string) error {
-	// Check if Python and vLLM are installed
-	cmd := exec.Command("python3", "-c", "import vllm")
-	if err := cmd.Run(); err != nil {
-		return fmt.Errorf("vLLM not installed. Please install Python and run: pip install vllm")
+func startTransformersServer(config Config) error {
+	serverURL := fmt.Sprintf("http://localhost:%d", config.TransformersServerArgs.Port)
+
+	// First check if server is already running
+	if checkTransformersServer(serverURL) {
+		fmt.Println("Transformers server is already running!")
+		return nil
 	}
 
-	// Start the vLLM server
-	cmd = exec.Command("python3", "-m", "vllm.entrypoints.api_server",
-		"--model", model,
-		"--host", "localhost",
-		"--port", "8000")
+	// Check Python dependencies
+	checkCmd := `
+import torch
+import torchvision
+import transformers
+import PIL
+import flask
+print(f"Torch version: {torch.__version__}")
+print(f"Torchvision version: {torchvision.__version__}")
+print(f"Transformers version: {transformers.__version__}")
+`
+	cmd := exec.Command("python3", "-c", checkCmd)
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return fmt.Errorf("required Python packages not installed. Please run:\npip install -r requirements.txt\nError: %v\nOutput: %s", err, output)
+	}
 
+	fmt.Printf("Python dependencies check output:\n%s\n", output)
+
+	// Start the server with configuration
+	args := []string{
+		"transformers_server.py",
+		"--port", strconv.Itoa(config.TransformersServerArgs.Port),
+		"--model", config.TransformersServerArgs.Model,
+		"--device", config.TransformersServerArgs.Device,
+		"--max-memory", fmt.Sprintf("%.2f", config.TransformersServerArgs.MaxMemory),
+		"--torch-dtype", config.TransformersServerArgs.TorchDtype,
+	}
+
+	cmd = exec.Command("python3", args...)
+
+	// Create pipes for stdout and stderr
+	stdout, err := cmd.StdoutPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stdout pipe: %v", err)
+	}
+	stderr, err := cmd.StderrPipe()
+	if err != nil {
+		return fmt.Errorf("failed to create stderr pipe: %v", err)
+	}
+
+	// Start the command
 	if err := cmd.Start(); err != nil {
-		return fmt.Errorf("failed to start vLLM server: %v", err)
+		return fmt.Errorf("failed to start Ovis server: %v", err)
 	}
 
-	// Wait for server to start
-	for i := 0; i < 30; i++ {
-		if checkVLLMServer("http://localhost:8000") {
-			return nil
+	// Create channels for server ready signal and error
+	ready := make(chan bool)
+	errorChan := make(chan error)
+
+	// Start goroutine to read stdout
+	// Start goroutine to read stdout
+	go func() {
+		scanner := bufio.NewScanner(stdout)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fmt.Printf("Transformers stdout: %s\n", line)
 		}
-		time.Sleep(time.Second)
-	}
+	}()
 
-	return fmt.Errorf("timeout waiting for vLLM server to start")
+	// Start goroutine to read stderr
+	go func() {
+		scanner := bufio.NewScanner(stderr)
+		for scanner.Scan() {
+			line := scanner.Text()
+			fmt.Printf("Transformers stderr: %s\n", line)
+			if strings.Contains(line, "Running on all addresses") {
+				// Give the server a moment to fully initialize
+				time.Sleep(1 * time.Second)
+				ready <- true
+				return
+			}
+			if strings.Contains(line, "Error") || strings.Contains(line, "error") {
+				errorChan <- fmt.Errorf("server error: %s", line)
+			}
+		}
+	}()
+
+	fmt.Println("Waiting for Transformers server to start... This might take a while on first run.")
+
+	// Wait for either ready signal or error with a timeout
+	select {
+	case <-ready:
+		fmt.Println("Ovis server is ready!")
+		return nil
+	case err := <-errorChan:
+		return fmt.Errorf("server failed to start: %v", err)
+	case <-time.After(30 * time.Minute): // Generous timeout for first model load
+		return fmt.Errorf("timeout waiting for server to start")
+	}
 }
