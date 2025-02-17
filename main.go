@@ -1837,6 +1837,11 @@ func updateBotProfile(client *mastodon.Client, config Config) error {
 					Name:  "Model",
 					Value: modelName,
 				})
+			} else if config.LLM.Provider == "gemini" {
+				fields = append(fields, mastodon.Field{
+					Name:  "Model",
+					Value: config.Gemini.Model,
+				})
 			}
 
 		case "source":
