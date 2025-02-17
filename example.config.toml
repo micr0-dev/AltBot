@@ -66,6 +66,13 @@ new_account_period_days = 7 # How long to consider an account as "new" for rate 
 shadow_ban_threshold = 10 # Number of exceeded attempts before shadow banning
 admin_contact_handle = "@admin" # Fedi handle of the bot's administrator
 
+[profile]
+enabled = true
+override_field_count = false # Set to true to remove the 4 feild limit, if using glitch-soc or other software that supports more fields
+# Order matters! First items have priority
+# Available fields: "version", "model", "source", "donate", "made-by"
+fields = ["made-by", "version", "model", "source", "donate"]
+
 [metrics]
 enabled = true # Set to false to completely disable all metrics collection and logging
 dashboard_enabled = true # Set to false to disable the metrics dashboard

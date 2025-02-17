@@ -37,7 +37,7 @@ import (
 )
 
 // Version of the bot
-const Version = "1.4.4"
+const Version = "1.5"
 
 // AsciiArt is the ASCII art for the bot
 const AsciiArt = `    _   _ _   ___     _   
@@ -117,6 +117,11 @@ type Config struct {
 		Enabled      bool `toml:"enabled"`
 		ReminderTime int  `toml:"reminder_time"`
 	} `toml:"alt_text_reminders"`
+	Profile struct {
+		Enabled            bool     `toml:"enabled"`
+		OverrideFeildCount bool     `toml:"override_field_count"`
+		Fields             []string `toml:"fields"`
+	} `toml:"profile"`
 }
 
 const (
@@ -146,6 +151,12 @@ var rateLimiter *RateLimiter
 var metricsManager *MetricsManager
 
 var llmProvider LLMProvider
+
+const (
+	sourceURL = "https://github.com/micr0-dev/AltBot"
+	donateURL = "https://ko-fi.com/micr0byte"
+	creator   = "@micr0@fuzzies.wtf"
+)
 
 func main() {
 	setupFlag := flag.Bool("setup", false, "Run the setup wizard")
@@ -249,6 +260,15 @@ func main() {
 	fmt.Printf("%s %d Custom settings loaded\n\n", getStatusSymbol(customSettingsCount > 0), customSettingsCount)
 
 	fmt.Printf("%s Mastodon Connection: %s\n", getStatusSymbol(true), config.Server.MastodonServer)
+
+	if config.Profile.Enabled {
+		if err := updateBotProfile(c, config); err != nil {
+			fmt.Printf("%s Warning: Failed to update profile fields: %v\n", Yellow, err)
+		}
+	} else {
+		fmt.Printf("%s Dynamic Profile Fields: %s\n", getStatusSymbol(false), "Disabled")
+	}
+
 	if videoAudioProcessingCapability {
 		fmt.Printf("%s Video/Audio Processing: %v\n", getStatusSymbol(true), videoAudioProcessingCapability)
 	} else {
@@ -1780,4 +1800,79 @@ func getProviderAttribution(config Config, lang string) string {
 
 	providerMessage := getLocalizedString(lang, messageKey, "response")
 	return fmt.Sprintf(providerMessage, config.Server.Username, modelInfo)
+}
+
+type ProfileField struct {
+	Name  string `json:"name"`
+	Value string `json:"value"`
+}
+
+func updateBotProfile(client *mastodon.Client, config Config) error {
+	if !config.Profile.Enabled {
+		return nil
+	}
+
+	// Prepare new fields based on config order
+	var fields []mastodon.Field
+
+	// Process fields in the order specified in config
+	for _, fieldName := range config.Profile.Fields {
+		switch fieldName {
+		case "version":
+			fields = append(fields, mastodon.Field{
+				Name:  "Version",
+				Value: fmt.Sprintf("v%s", Version),
+			})
+
+		case "model":
+			if config.LLM.Provider == "transformers" {
+				modelName := strings.Split(config.TransformersServerArgs.Model, "/")[1]
+				fields = append(fields, mastodon.Field{
+					Name:  "Model",
+					Value: modelName,
+				})
+			} else if config.LLM.Provider == "ollama" {
+				modelName := strings.Split(config.LLM.OllamaModel, ":")[0]
+				fields = append(fields, mastodon.Field{
+					Name:  "Model",
+					Value: modelName,
+				})
+			}
+
+		case "source":
+			fields = append(fields, mastodon.Field{
+				Name:  "Source Code",
+				Value: sourceURL,
+			})
+
+		case "donate":
+			fields = append(fields, mastodon.Field{
+				Name:  "Support Development",
+				Value: donateURL,
+			})
+
+		case "made-by":
+			fields = append(fields, mastodon.Field{
+				Name:  "Made by",
+				Value: creator,
+			})
+		}
+	}
+
+	// Ensure we don't exceed the maximum number of fields (typically 4)
+	if len(fields) > 4 && !config.Profile.OverrideFeildCount {
+		fields = fields[:4]
+		fmt.Printf("%s Warning: Some profile fields were omitted due to the 4-field limit\n", Yellow)
+	}
+
+	// Update profile
+	_, err := client.AccountUpdate(context.Background(), &mastodon.Profile{
+		Fields: &fields,
+	})
+	if err != nil {
+		return fmt.Errorf("error updating profile: %v", err)
+	}
+
+	fmt.Printf("%s Profile fields updated successfully\n", getStatusSymbol(true))
+	return nil
 }
