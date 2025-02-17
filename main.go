@@ -1650,7 +1650,7 @@ func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkT
 					log.Printf("Notifying user %s about missing alt-text in post %s...", check.UserID, check.PostID)
 					metricsManager.logMissingAltText(string(check.UserID))
 					if shouldSendReminder(check.UserID) {
-						username := "@" + post.Account.Acct
+						username := post.Account.Acct
 						notifyUserOfMissingAltText(c, post, username)
 						metricsManager.logAltTextReminderSent(string(check.UserID))
 					}
