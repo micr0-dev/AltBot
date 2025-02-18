@@ -828,7 +828,7 @@ func generateAndPostAltText(c *mastodon.Client, status *mastodon.Status, replyTo
 			log.Printf("Error posting reply: %v", err)
 		}
 
-		if config.AltTextReminders.Enabled {
+		if config.AltTextReminders.Enabled && visibility != "direct" {
 			queuePostForAltTextCheck(status, string(replyPost.Account.ID))
 		}
 
@@ -1633,7 +1633,8 @@ func checkAltTextPeriodically(c *mastodon.Client, interval time.Duration, checkT
 				// Fetch post details
 				post, err := c.GetStatus(ctx, check.PostID)
 				if err != nil {
-					log.Printf("Error fetching post %s during alt-text check: %v", check.PostID, err)
+					log.Printf("Error fetching post %s during alt-text check. Deleting from queue: %v", check.PostID, err)
+					delete(altTextChecks, postID)
 					continue
 				}
 
